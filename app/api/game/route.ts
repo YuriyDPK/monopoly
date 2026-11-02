@@ -38,7 +38,7 @@ function movePlayer(g:Game,p:Player,d1:number,d2:number){
   if(receiver&&!receiver.bankrupt){const amount=isDiceRent(landed)?diceRentFactor(g.owners,landed)*steps:isCarCompany(landed)?carRent(g.owners,landed):propertyRent(tile.price,effectivePropertyLevel(g.owners,g.levels,landed));g.debt={amount,to:owner,reason:`Аренда «${tile.name}»`};g.phase='pay'}else next(g);
  }else if(tile.kind==='tax'){g.debt={amount:2000,reason:'Клетка «Деньги»'};g.phase='pay'}
  else if(tile.kind==='jackpot'){g.phase='jackpot'}
- else if(tile.kind==='chance'){if(Math.random()<.5){p.money+=500;log(g,`${p.name} получает 500k по карточке «Шанс»`);next(g)}else{g.debt={amount:500,reason:'Карточка «Шанс»'};g.phase='pay'}}
+ else if(tile.kind==='chance'){if(Math.random()<.5){p.money+=500;log(g,`${p.name} получает 500k по карточке «Шанс»`);g.phase='chanceResult'}else{g.debt={amount:500,reason:'Карточка «Шанс»'};g.phase='pay'}}
  else if(tile.kind==='bonus'){p.money+=500;log(g,`${p.name} получает 500k от банка`);next(g)}else next(g);
 }
 function autoPassAuction(g:Game){
@@ -87,6 +87,7 @@ function scheduleBot(g: Game, delay = 850) {
    else if (room.phase === 'jail') action = 'jailRoll';
    else if (room.phase === 'jackpot') { action = bot.money >= JACKPOT_BET ? 'jackpotBet' : 'jackpotSkip'; extra = {numbers:[2,5]}; }
    else if (room.phase === 'jackpotResult') action = 'jackpotContinue';
+   else if (room.phase === 'chanceResult') action = 'chanceContinue';
    else if (room.phase === 'buy') action = bot.money >= (tiles[bot.position].price || 0) ? 'buy' : 'auction';
    else if (room.phase === 'pay' && room.debt) {
     if (bot.money >= room.debt.amount) action = 'pay';
@@ -125,6 +126,7 @@ export async function POST(req:Request){
   }
  }
  else if(b.action==='jailPay'){if(current(g).id!==p.id||g.phase!=='jail'||!p.jailed)return fail('Выход из тюрьмы недоступен');g.debt={amount:500,reason:'Выход из тюрьмы',afterPayment:'releaseRoll'};g.phase='pay'}
+ else if(b.action==='chanceContinue'){if(current(g).id!==p.id||g.phase!=='chanceResult')return fail('Подтверждение недоступно');next(g)}
  else if(b.action==='jackpotSkip'){if(current(g).id!==p.id||g.phase!=='jackpot')return fail('Джекпот недоступен');log(g,`${p.name} пропускает джекпот`);next(g)}
  else if(b.action==='jackpotBet'){const numbers=b.numbers;if(current(g).id!==p.id||g.phase!=='jackpot'||!Array.isArray(numbers)||numbers.length<1||numbers.length>3||new Set(numbers).size!==numbers.length||numbers.some((n:unknown)=>!Number.isInteger(n)||Number(n)<1||Number(n)>6)||p.money<JACKPOT_BET)return fail('Выберите от одного до трёх чисел и проверьте баланс');p.money-=JACKPOT_BET;const result=1+Math.floor(Math.random()*6),payout=numbers.includes(result)?JACKPOT_PAYOUTS[numbers.length]:0;p.money+=payout;g.jackpotResult={playerId:p.id,choice:numbers,result,payout};g.phase='jackpotResult';g.animationUntil=Date.now()+1100}
  else if(b.action==='jackpotContinue'){if(current(g).id!==p.id||g.phase!=='jackpotResult'||Date.now()<(g.animationUntil||0)||!g.jackpotResult)return fail('Дождитесь результата джекпота');const result=g.jackpotResult;log(g,`${p.name}: джекпот — выпало ${result.result}, ${result.payout?`выплата ${result.payout}k`:'ставка проиграна'}`);next(g)}

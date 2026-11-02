@@ -200,3 +200,5 @@
 
 /* Align the ownership overlay with the printed bottom row, including its top edge. */
 .property-cell.cell-side-2{top:calc(85.8% - 0.35%) !important;height:calc(14.2% + 0.35%) !important}
+
+.trade-board-panel{position:absolute;inset:3%;z-index:12;overflow:auto;background:#29292d;padding:clamp(12px,3cqw,28px);box-shadow:0 8px 32px #0008}.trade-board-panel h2{margin:0 0 8px;font-size:clamp(18px,5cqw,30px)}.trade-board-panel p{color:#b4c2b6;font-size:clamp(10px,2.2cqw,13px)}.trade-board-panel .trade-columns{margin:12px 0;gap:12px}.trade-board-panel .trade-columns>div{min-width:0}.trade-board-panel .trade-columns>div+div{padding-left:12px}.trade-board-panel input{min-width:0}.trade-board-panel .trade-property{margin-top:6px;font-size:clamp(9px,2cqw,12px)}.trade-board-panel .property-logo{width:30px;height:30px}.property-cell.trade-eligible{outline:2px dashed #a9c96c;outline-offset:-3px}.property-cell.trade-selected{outline:4px solid #c9ef6c;outline-offset:-4px;opacity:.85}
