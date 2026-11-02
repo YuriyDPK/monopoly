@@ -1,36 +1,34 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Monopoly Club
 
-## Getting Started
+Онлайн-прототип настольной игры для 2–6 игроков на Next.js.
 
-First, run the development server:
+## Запуск
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Откройте адрес, который выведет Next.js, создайте комнату и скопируйте ссылку. Игроки по ссылке сразу попадают в лобби; начать игру может создатель. Для игры с другого устройства адрес должен быть доступен этому устройству (например, адрес компьютера в общей локальной сети). Для игры через интернет приложение нужно разместить на общедоступном сервере.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Что реализовано
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Боты (добавление и удаление в лобби, автоматические ходы, аукционы и ответы на сделки), ходы, бросок и анимация движения, покупка компаний, аренда с подтверждением платежа, тюрьма и джекпот, аукцион с минимальной ставкой не ниже стоимости компании, улучшения компаний, залог и выкуп, банкротство, обмен деньгами и компаниями, чат, полноэкранный режим. Игра заканчивается, когда остаётся один платёжеспособный игрок.
 
-## Learn More
+У обычной компании уровень 0 до покупки всей цветовой группы. Полная улица даёт уровень 1 и удваивает базовую аренду; затем доступно до пяти улучшений, аренда по уровням составляет 20%, 40%, 60%, 90%, 120%, 160% и 200% цены компании. Улучшения стоят 40%, 55%, 70%, 85% и 100% цены компании; перед залогом улучшения этой компании продаются по одному за половину их стоимости; за один ход можно улучшить каждую улицу только один раз. Залог действует 15 завершённых ходов владельца: счётчик виден на клетке. Если владелец не выкупит компанию вовремя, она вернётся банку и станет свободной для покупки. При передаче заложенной компании срок сохраняется. Пока компания заложена, аренда не взимается. У автофирм, Rovio и Rockstar Games действуют отдельные правила аренды. Управление открывается нажатием на клетку.
 
-To learn more about Next.js, take a look at the following resources:
+Дубль даёт дополнительный ход; четвёртый подряд дубль отправляет в тюрьму. Тюрьма: выход за 500k или дубль; после третьего неудачного броска платёж обязателен. Джекпот: выберите от одного до трёх чисел и поставьте 1 000k; при совпадении выплата составит 5 000k, 2 000k или 1 000k соответственно; после броска показываются выпавшее число и результат. Игрок, выставивший компанию на аукцион, в торгах не участвует. Для Rovio и Rockstar Games аренда равна сумме кубиков, умноженной на 100k за одну компанию или на 250k при владении обеими. Аренда автофирм составляет 250k, 500k, 1 000k или 2 000k за владение одной, двумя, тремя или четырьмя автофирмами. На аукционе игрок автоматически пасует, если на минимальную ставку не хватает наличных и больше нет компаний, доступных для залога.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Это прототип с упрощёнными правилами и карточками. Комнаты хранятся в памяти одного процесса и пропадают при его перезапуске. Для надёжной публичной эксплуатации нужны постоянное хранилище, безопасная идентификация игроков и развёртывание с общим состоянием для всех экземпляров сервера. Ссылка на localhost доступна только на том же устройстве.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Звуковые эффекты
 
-## Deploy on Vercel
+Аудиофайлы в `public/sounds` опубликованы авторами под Creative Commons Zero (CC0):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Бросок кубиков: [rolling dice 2 — nettimato](https://freesound.org/people/nettimato/sounds/353974/).
+- Пополнение: [Cash Register — modusmogulus](https://freesound.org/people/modusmogulus/sounds/794903/).
+- Платёж: [Natural Metal Coin Sound 1 — The-Sacha-Rush](https://freesound.org/people/The-Sacha-Rush/sounds/400115/).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Иконки X, Instagram, Telegram и McDonald’s взяты из [Simple Icons](https://github.com/simple-icons/simple-icons).
+
+За прохождение старта начисляется 2 000k, за остановку точно на старте — 3 000k всего. Клетка «Деньги» требует оплаты 2 000k банку с подтверждением; при нехватке средств можно продать улучшения и заложить имущество.
