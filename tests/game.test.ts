@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { POST } from '../app/api/game/route';
 import { CHANCE_CARDS, drawChance } from '../lib/chance';
-import { DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, PROPERTY_RENTS, effectivePropertyLevel, propertyRent, propertyUpgradeCost, type Game } from '../lib/game';
+import { DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, PROPERTY_RENTS, effectivePropertyLevel, propertyRent, propertyUpgradeCost, playerCapital, liquidFunds, type Game } from '../lib/game';
 
 let fixtureNumber = 0;
 function fixture(): Game {
@@ -86,7 +86,7 @@ test('diamond requires confirmation, charges exactly 1000 and permits financing 
   assert.equal((await act(game,'loanTake')).status,200);
   assert.equal(game.debt?.amount,1000);
   assert.equal((await act(game,'pay')).status,200);
-  assert.equal(game.players[0].money,2100);
+  assert.equal(game.players[0].money,100+LOAN_PRINCIPAL-1000);
   assert.equal(game.players[0].loan?.turnsLeft,LOAN_TURNS-1);
   assert.equal((await act(game,'pay',{},'alice')).status,400);
 });
@@ -180,13 +180,13 @@ test('a loan is available once per game, only on the borrower turn after movemen
   assert.deepEqual(game.players[0].loan,{principal:LOAN_PRINCIPAL,totalDue:LOAN_TOTAL_DUE,turnsLeft:LOAN_TURNS});
   assert.equal((await act(game,'loanTake')).status,400);
   assert.equal((await act(game,'loanRepay')).status,200);
-  assert.equal(game.players[0].money,14700);
+  assert.equal(game.players[0].money,15000+LOAN_PRINCIPAL-LOAN_TOTAL_DUE);
   assert.equal(game.players[0].loan,undefined);
   assert.equal(game.players[0].loanUsed,true);
   assert.equal((await act(game,'loanTake')).status,400);
 });
 
-test('five completed own turns mature a loan, opponent turns do not, payment preserves the turn', async () => {
+test('fifteen completed own turns mature a loan, opponent turns do not, payment preserves the turn', async () => {
   const game=fixture();
   await act(game,'loanTake');
   for (let turn=0;turn<LOAN_TURNS;turn++) {
@@ -209,7 +209,7 @@ test('five completed own turns mature a loan, opponent turns do not, payment pre
   assert.equal(game.turnSerial,serial);
   assert.equal(game.phase,'roll');
   assert.equal(game.players[0].loan,undefined);
-  assert.equal(game.players[0].money,14695);
+  assert.equal(game.players[0].money,15000+LOAN_PRINCIPAL-LOAN_TOTAL_DUE-LOAN_TURNS);
 });
 
 test('loan maturity preserves jail status and extra turns', async () => {
@@ -248,7 +248,7 @@ test('loan cannot be repaid ahead of a mandatory payment or with insufficient fu
   assert.equal(game.debt.amount,1000);
   game.phase='roll';game.debt=undefined;game.players[0].money=100;
   assert.equal((await act(game,'loanRepay')).status,400);
-  assert.equal(game.players[0].loan?.totalDue,3300);
+  assert.equal(game.players[0].loan?.totalDue,LOAN_TOTAL_DUE);
 });
 
 test('default on a mature loan clears the loan and releases mortgaged assets to the bank', async () => {
@@ -293,13 +293,13 @@ test('bots confirm chance and diamond debts, take a rescue loan, and pay without
     }
     assert.equal(callbacks.length,1);
     await callbacks.shift()!();
-    assert.equal(game.players[0].money,3100);
+    assert.equal(game.players[0].money,100+LOAN_PRINCIPAL);
     assert.equal(game.players[0].loanUsed,true);
     assert.equal(game.debt?.amount,1000);
     assert.equal(callbacks.length,1);
     await callbacks.shift()!();
-    assert.equal(game.players[0].money,2100);
-    assert.equal(game.players[0].loan?.turnsLeft,4);
+    assert.equal(game.players[0].money,100+LOAN_PRINCIPAL-1000);
+    assert.equal(game.players[0].loan?.turnsLeft,LOAN_TURNS-1);
     assert.equal(game.turn,1);
     assert.equal(game.phase,'roll');
     assert.equal(callbacks.length,0);
@@ -338,4 +338,56 @@ test('bots repay mature loans before rolling and default when no rescue is avail
   assert.equal(insolvent.phase,'finished');
   assert.equal(insolvent.winner,'bob');
   assert.equal(callbacks.length,0);
+});
+
+
+test('capital and liquidation value account for improvements, mortgages and loans', () => {
+  const game=fixture(), player=game.players[0];
+  player.money=100;player.loan={principal:5000,totalDue:5500,turnsLeft:10};
+  game.owners={1:'alice',3:'alice',39:'bob'};game.levels={1:2};game.mortgaged=[3];
+  assert.equal(playerCapital(game,player),100+600+1000+300-5500);
+  assert.equal(liquidFunds(game,player),100+300+500);
+});
+
+test('bankruptcy is allowed before liquidating assets only when they cannot cover the debt', async () => {
+  const game=fixture();game.players[0].money=100;game.owners={1:'alice'};game.levels={1:2};
+  game.phase='pay';game.debt={amount:900,reason:'Аренда',to:'bob'};
+  assert.equal(liquidFunds(game,game.players[0]),900);
+  assert.equal((await act(game,'bankrupt')).status,400);
+  game.debt.amount=901;
+  assert.equal((await act(game,'bankrupt')).status,200);
+  assert.equal(game.players[0].bankrupt,true);
+  assert.equal(game.players[1].money,15100);
+  assert.equal(game.owners[1],'bob');
+  assert.equal(game.levels?.[1],2);
+  assert.equal(game.winner,'bob');
+});
+
+test('a payable chance expense is confirmed and paid once', async () => {
+  const game=fixture();game.phase='chanceResult';
+  game.chanceResult={id:'test',title:'Расход',description:'Тест',amount:-400,playerId:'alice'};
+  assert.equal((await act(game,'chanceContinue')).status,200);
+  assert.equal(game.players[0].money,14600);
+  assert.equal(game.turn,1);
+  assert.equal(game.phase,'roll');
+  assert.equal((await act(game,'chanceContinue',{},'alice')).status,400);
+});
+
+test('surrender outside a turn cancels trades and auction bids while the game continues', async () => {
+  const game=fixture();game.players.push({id:'carol',name:'Кэрол',color:'#aaa',money:1000,position:0});
+  game.owners={1:'bob'};game.trade={from:'alice',to:'bob',give:[],take:[1],giveCash:0,takeCash:0};
+  game.phase='auction';game.auction={tile:3,bid:600,bidder:'bob',passed:['alice'],seller:'alice'};
+  assert.equal((await act(game,'surrender',{},'bob')).status,200);
+  assert.equal(game.players[1].bankrupt,true);assert.equal(game.owners[1],undefined);
+  assert.equal(game.trade,undefined);assert.equal(game.auction?.bid,0);assert.equal(game.auction?.bidder,undefined);
+  assert.equal(game.turn,0);assert.equal(game.phase,'auction');
+  assert.equal((await act(game,'surrender',{},'bob')).status,400);
+});
+
+test('surrender on the current turn transfers assets to the creditor and advances', async () => {
+  const game=fixture();game.players.push({id:'carol',name:'Кэрол',color:'#aaa',money:1000,position:0});
+  game.players[0].money=100;game.owners={1:'alice'};game.phase='pay';game.debt={amount:500,reason:'Аренда',to:'bob'};
+  assert.equal((await act(game,'surrender')).status,200);
+  assert.equal(game.owners[1],'bob');assert.equal(game.players[1].money,15100);
+  assert.equal(game.turn,1);assert.equal(game.phase,'roll');
 });

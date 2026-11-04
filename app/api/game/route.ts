@@ -1,4 +1,4 @@
-import { colors, DICE_ROLL_MS, TOKEN_STEP_MS, MAX_PROPERTY_LEVEL, MORTGAGE_TURNS, JACKPOT_BET, JACKPOT_PAYOUTS, DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, isDiceRent, diceRentFactor, isCarCompany, carRent, propertyRent, propertyUpgradeCost, ownsFullGroup, effectivePropertyLevel, groupHasMortgage, type Game, type Player, tiles, type Trade } from '@/lib/game';
+import { colors, DICE_ROLL_MS, TOKEN_STEP_MS, MAX_PROPERTY_LEVEL, MORTGAGE_TURNS, JACKPOT_BET, JACKPOT_PAYOUTS, DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, isDiceRent, diceRentFactor, isCarCompany, carRent, propertyRent, propertyUpgradeCost, ownsFullGroup, effectivePropertyLevel, groupHasMortgage, liquidFunds, type Game, type Player, tiles, type Trade } from '@/lib/game';
 import { drawChance } from '@/lib/chance';
 
 const globalStore = globalThis as typeof globalThis & { monopolyRooms?: Map<string, Game> };
@@ -35,6 +35,16 @@ function next(g:Game){
  if(g.extraTurn===player.id&&!player.bankrupt&&!player.jailed){g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;beginTurn(g);log(g,`${player.name} получает ещё один ход за дубль`);return}
  g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;player.doubles=0;
  do { g.turn=(g.turn+1)%g.players.length } while(current(g).bankrupt);beginTurn(g);
+}
+function eliminate(g:Game, player:Player, receiver:Player | undefined, reason:string) {
+ if(g.trade && (g.trade.from===player.id || g.trade.to===player.id)) { g.trade=undefined; log(g,'Сделка отменена: игрок выбыл'); }
+ if(receiver && !receiver.bankrupt) receiver.money+=player.money;
+ for(const key of Object.keys(g.owners)){const i=Number(key);if(g.owners[i]!==player.id)continue;if(receiver && !receiver.bankrupt)g.owners[i]=receiver.id;else{delete g.owners[i];delete g.levels?.[i];delete g.mortgageTurns?.[i];g.mortgaged=g.mortgaged.filter(x=>x!==i)}}
+ player.money=0;player.bankrupt=true;player.loan=undefined;log(g,`${player.name} ${reason}`);
+ if(current(g).id===player.id){next(g);return}
+ if(g.debt?.to===player.id)g.debt.to=undefined;
+ if(g.players.filter(p=>!p.bankrupt).length<=1){g.phase='finished';g.winner=g.players.find(p=>!p.bankrupt)?.id;g.extraTurn=undefined;g.debt=undefined;g.auction=undefined;g.chanceResult=undefined;return}
+ if(g.auction){if(g.auction.bidder===player.id){g.auction.bidder=undefined;g.auction.bid=0}if(!g.auction.passed.includes(player.id))g.auction.passed.push(player.id)}
 }
 function movePlayer(g:Game,p:Player,d1:number,d2:number){
  const steps=d1+d2, old=p.position; p.position=(old+steps)%40;
@@ -104,6 +114,7 @@ function scheduleBot(g: Game, delay = 850) {
    else if (room.phase === 'buy') action = bot.money >= (tiles[bot.position].price || 0) ? 'buy' : 'auction';
    else if (room.phase === 'pay' && room.debt) {
     if (bot.money >= room.debt.amount) action = 'pay';
+    else if (liquidFunds(room, bot) < room.debt.amount && (bot.loanUsed || bot.loan || liquidFunds(room, bot) + LOAN_PRINCIPAL < room.debt.amount)) action = 'bankrupt';
     else if (!bot.loanUsed && !bot.loan) action = 'loanTake';
     else {
      const property = Object.keys(room.owners).map(Number).filter(i => room.owners[i] === bot!.id && !room.mortgaged.includes(i)).sort((a, b) => (tiles[b].price || 0) - (tiles[a].price || 0))[0];
@@ -145,7 +156,7 @@ export async function POST(req:Request){
   if(current(g).id!==p.id||g.phase!=='chanceResult'||(card&&card.playerId!==p.id)||Date.now()<(g.animationUntil||0))return fail('Подтверждение недоступно');
   g.chanceResult=undefined;
   if(!card){log(g,`${p.name} подтверждает уже полученную награду «Шанса»`);next(g)}
-  else if(card.amount<0){g.debt={amount:-card.amount,reason:`Шанс: ${card.title}`,kind:'chance'};g.phase='pay'}
+  else if(card.amount<0){const amount=-card.amount;if(p.money>=amount){p.money-=amount;log(g,`${p.name} платит ${amount}k банку · Шанс: ${card.title}`);next(g)}else{g.debt={amount,reason:`Шанс: ${card.title}`,kind:'chance'};g.phase='pay'}}
   else {p.money+=card.amount;log(g,`${p.name} получает ${card.amount}k: ${card.title}`);next(g)}
  }
  else if(b.action==='loanTake'){
@@ -181,7 +192,8 @@ export async function POST(req:Request){
  else if(b.action==='sellUpgrade'){const i=Number(b.tile),tile=tiles[i],level=g.levels[i]||0;if(!g.started||g.phase==='finished'||p.bankrupt||g.owners[i]!==p.id||!tile?.price||g.mortgaged.includes(i)||level<1)return fail('Нельзя продать улучшение');const amount=Math.floor(propertyUpgradeCost(i,level-1)/2);g.levels[i]=level-1;p.money+=amount;log(g,`${p.name} продаёт улучшение ${tile.name} за ${amount}k`)}
  else if(b.action==='mortgage'){const i=Number(b.tile);if(g.owners[i]!==p.id||g.mortgaged.includes(i)||!tiles[i]?.price||(g.levels[i]||0)>0)return fail('Сначала продайте улучшения этой компании');g.mortgaged.push(i);g.mortgageTurns[i]=MORTGAGE_TURNS;p.money+=Math.floor(tiles[i].price!/2);log(g,`${p.name} закладывает ${tiles[i].name}`)}
  else if(b.action==='unmortgage'){const i=Number(b.tile);const amount=Math.ceil((tiles[i]?.price||0)*.55);if(g.owners[i]!==p.id||!g.mortgaged.includes(i)||p.money<amount)return fail('Не удалось выкупить компанию');g.mortgaged=g.mortgaged.filter(x=>x!==i);delete g.mortgageTurns[i];p.money-=amount;log(g,`${p.name} выкупает ${tiles[i].name} из залога`)}
- else if(b.action==='bankrupt'){if(current(g).id!==p.id||g.phase!=='pay'||!g.debt||p.money>=g.debt.amount||Object.keys(g.owners).some(i=>g!.owners[Number(i)]===p!.id&&!g!.mortgaged.includes(Number(i))))return fail('Сначала заложите доступное имущество');const receiver=g.players.find(x=>x.id===g!.debt?.to);if(receiver)receiver.money+=p.money;for(const key of Object.keys(g.owners)){const i=Number(key);if(g.owners[i]===p.id){if(receiver)g.owners[i]=receiver.id;else{delete g.owners[i];delete g.levels[i];delete g.mortgageTurns[i];g.mortgaged=g.mortgaged.filter(x=>x!==i)}}}p.money=0;p.bankrupt=true;p.loan=undefined;log(g,`${p.name} объявляет банкротство`);next(g)}
+ else if(b.action==='bankrupt'){if(current(g).id!==p.id||g.phase!=='pay'||!g.debt||liquidFunds(g,p)>=g.debt.amount)return fail('Доступных средств достаточно для погашения долга');eliminate(g,p,g.players.find(x=>x.id===g!.debt?.to),'объявляет банкротство')}
+ else if(b.action==='surrender'){if(!g.started||g.phase==='finished'||p.bankrupt)return fail('Сдаться сейчас нельзя');const receiver=current(g).id===p.id?g.players.find(x=>x.id===g!.debt?.to):undefined;eliminate(g,p,receiver,'сдаётся')}
  else if(b.action==='trade'){const t=b.trade as Trade;const target=g.players.find(x=>x.id===t?.to);if(!g.started||p.bankrupt||!target||target.id===p.id||target.bankrupt||g.trade)return fail('Сделка недоступна');const give=Array.isArray(t.give)?t.give:[],take=Array.isArray(t.take)?t.take:[];const gc=Number(t.giveCash),tc=Number(t.takeCash);if(!Number.isSafeInteger(gc)||!Number.isSafeInteger(tc)||gc<0||tc<0||gc>p.money||tc>target.money||give.some(i=>g!.owners[i]!==p!.id)||take.some(i=>g!.owners[i]!==target.id)||new Set(give).size!==give.length||new Set(take).size!==take.length)return fail('Проверьте условия сделки');g.trade={id:crypto.randomUUID(),from:p.id,to:target.id,give,take,giveCash:gc,takeCash:tc};log(g,`${p.name} предлагает сделку игроку ${target.name}`)}
  else if(b.action==='tradeResponse'){const t=g.trade;if(!t||t.to!==p.id)return fail('Предложение недоступно');const from=g.players.find(x=>x.id===t.from)!;if(b.accept){if(from.bankrupt||p.bankrupt||from.money<t.giveCash||p.money<t.takeCash||t.give.some(i=>g!.owners[i]!==from.id)||t.take.some(i=>g!.owners[i]!==p!.id))return fail('Условия сделки изменились');from.money+=t.takeCash-t.giveCash;p.money+=t.giveCash-t.takeCash;t.give.forEach(i=>g!.owners[i]=p!.id);t.take.forEach(i=>g!.owners[i]=from.id);log(g,`${p.name} принимает сделку с ${from.name}`)}else log(g,`${p.name} отклоняет сделку`);g.trade=undefined}
  else if(b.action==='cancelTrade'){if(g.trade?.from!==p.id)return fail('Сделка недоступна');g.trade=undefined}

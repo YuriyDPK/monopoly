@@ -12,9 +12,9 @@ export const MORTGAGE_TURNS = 15;
 export const JACKPOT_BET = 1000;
 export const JACKPOT_PAYOUTS:Record<number,number> = {1:5000,2:2000,3:1000};
 export const DIAMOND_FEE = 1000;
-export const LOAN_PRINCIPAL = 3000;
-export const LOAN_TOTAL_DUE = 3300;
-export const LOAN_TURNS = 5;
+export const LOAN_PRINCIPAL = 5000;
+export const LOAN_TOTAL_DUE = 5500;
+export const LOAN_TURNS = 15;
 export const CAR_COMPANIES = [5,15,25,35] as const;
 export const isCarCompany = (i:number) => (CAR_COMPANIES as readonly number[]).includes(i);
 export const carRent = (owners:Record<number,string>, i:number) => {const owner=owners[i];if(!owner)return 250;const count=CAR_COMPANIES.filter(index=>owners[index]===owner).length;return [250,500,1000,2000][Math.max(0,count-1)]};
@@ -59,3 +59,17 @@ export type Trade = {id?:string; from:string; to:string; give:number[]; take:num
 export type Game = {code:string; players:Player[]; host:string; started:boolean; turn:number; phase:'lobby'|'roll'|'buy'|'pay'|'auction'|'jackpot'|'jackpotResult'|'chanceResult'|'jail'|'finished'; owners:Record<number,string>; levels?:Record<number,number>; turnSerial?:number; lastUpgradeTurn?:Record<string,number>; mortgaged:number[]; mortgageTurns?:Record<number,number>; dice:number[]; debt?:{amount:number; to?:string; reason:string; kind?:'diamond'|'chance'|'loan'; afterPayment?:'releaseRoll'|'releaseEnd'|'resumeTurn'}; auction?:{tile:number; bid:number; bidder?:string; passed:string[]; seller?:string}; move?:{playerId:string; steps:number; jailTransfer?:boolean; stepMs?:number}; extraTurn?:string; rollSeq?:number; jackpotResult?:{playerId:string; choice:number[]; result:number; payout:number}; chanceResult?:ChanceResult; lastChanceId?:string; trade?:Trade; log:string[]; winner?:string; animationUntil?:number; revision:number};
 export const colors=['#ed515b','#35aeeb','#95ca50','#b880e7','#f7b94a','#ec7fa6'];
 export const money=(n:number)=>`${n.toLocaleString('en-US')}k`;
+
+// Net capital uses purchase prices; a mortgage and an outstanding loan are liabilities.
+export function playerCapital(game: Game, player: Player): number {
+  return Object.keys(game.owners).map(Number).filter(i => game.owners[i] === player.id).reduce((total, i) => {
+    const price = tiles[i]?.price ?? 0;
+    const upgrades = game.levels?.[i] ?? 0;
+    return total + price - (game.mortgaged.includes(i) ? Math.floor(price / 2) : 0) + upgrades * propertyUpgradeCost(i);
+  }, player.money - (player.loan?.totalDue ?? 0));
+}
+// Amount obtainable immediately by selling improvements and mortgaging property.
+export function liquidFunds(game: Game, player: Player): number {
+  return Object.keys(game.owners).map(Number).filter(i => game.owners[i] === player.id && !game.mortgaged.includes(i)).reduce((total, i) =>
+    total + Math.floor((tiles[i]?.price ?? 0) / 2) + (game.levels?.[i] ?? 0) * Math.floor(propertyUpgradeCost(i) / 2), player.money);
+}
