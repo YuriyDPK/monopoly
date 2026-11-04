@@ -202,3 +202,24 @@
 .property-cell.cell-side-2{top:calc(85.8% - 0.35%) !important;height:calc(14.2% + 0.35%) !important}
 
 .trade-board-panel{position:absolute;inset:3%;z-index:12;overflow:auto;background:#29292d;padding:clamp(12px,3cqw,28px);box-shadow:0 8px 32px #0008}.trade-board-panel h2{margin:0 0 8px;font-size:clamp(18px,5cqw,30px)}.trade-board-panel p{color:#b4c2b6;font-size:clamp(10px,2.2cqw,13px)}.trade-board-panel .trade-columns{margin:12px 0;gap:12px}.trade-board-panel .trade-columns>div{min-width:0}.trade-board-panel .trade-columns>div+div{padding-left:12px}.trade-board-panel input{min-width:0}.trade-board-panel .trade-property{margin-top:6px;font-size:clamp(9px,2cqw,12px)}.trade-board-panel .property-logo{width:30px;height:30px}.property-cell.trade-eligible{outline:2px dashed #a9c96c;outline-offset:-3px}.property-cell.trade-selected{outline:4px solid #c9ef6c;outline-offset:-4px;opacity:.85}
+
+/* Read the table's conversation from oldest to newest, like a chat. */
+.workspace{grid-template-columns:220px minmax(480px,1fr) 300px}
+.activity{height:100dvh;min-height:460px;position:sticky;top:0;min-width:0;padding:30px 18px 20px;background:#1c1c20}
+.activity-heading{gap:8px;flex:none}.activity-heading h2{font-size:20px;margin:9px 0 18px}.activity-heading .eyebrow{color:#9caaa0;font-size:8px;letter-spacing:1.3px}
+.activity-heading .activity-live{color:#c9ef6c;font-size:9px;letter-spacing:.6px;white-space:nowrap}
+.activity-feed-wrap{position:relative;display:flex;flex:1;min-height:0}
+.activity-content{width:100%;max-height:none;min-height:0;padding:17px 0 12px;scrollbar-width:thin;scrollbar-color:#55555d transparent;overscroll-behavior:contain}
+.activity-entries{display:flex;flex-direction:column;gap:9px;min-height:100%;justify-content:flex-end}
+.feed-event{display:flex;gap:9px;padding:11px 10px;background:#25252a;border:1px solid #34343b;border-radius:10px;flex-shrink:0}
+.feed-icon{width:24px;height:24px;flex:none;display:grid;place-items:center;border-radius:7px;background:#35353c;color:#b7bdc8;font-size:16px;line-height:1}
+.feed-body{min-width:0;flex:1}.feed-label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:1px 0 5px;color:#a3a6af;font-size:10px;font-weight:600}.feed-label>span{color:#8a9286;font-size:9px;font-weight:400}
+.feed-body p{font-size:13px;line-height:1.65;overflow-wrap:anywhere;margin:0;color:#e0e1e7}.feed-body p strong{color:#f1f1dd;white-space:nowrap;font-weight:700}
+.feed-income .feed-icon{background:#35412b;color:#c9ef6c}.feed-payment .feed-icon{background:#4a3031;color:#f3a8a0}.feed-property .feed-icon{background:#35334c;color:#c8b5f5}
+.feed-chat{background:#292e2a;border-color:#3b453a}.feed-chat .feed-label{color:#d2ddc9}.feed-chat .feed-icon{background:#364132;font-weight:700;font-size:12px}
+.feed-latest{border-color:#59644b}.activity-jump{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);border:1px solid #788c54;border-radius:20px;white-space:nowrap;background:#d3ef9b;color:#25311c;padding:8px 12px;font-size:11px;box-shadow:0 4px 18px #0008}
+.activity-empty{padding:40px 15px}.activity-empty p{color:#a0a6a1;line-height:1.8}
+.chat{gap:8px;margin-top:8px;padding:12px 0 0;flex:none}.chat input{min-width:0;font-size:12px;line-height:1.4;background:#29292e;border:1px solid #42424a;border-radius:8px;padding:10px}.chat input:focus{border-color:#a1bd69}.chat button{flex:none;width:36px;height:38px;border-radius:8px;font-size:20px}
+.activity-footer{flex:none;margin-top:14px;padding-top:12px;font-size:8px;color:#8c958b}
+@media(max-width:1200px){.workspace{grid-template-columns:200px minmax(450px,1fr)}.activity{display:flex;grid-column:1/-1;position:static;height:380px;min-height:0;border-left:0;border-top:1px solid #39393f;padding:20px 24px}.activity-entries{justify-content:flex-start}.activity-heading h2{margin-bottom:10px}.activity-footer{display:none}.activity-empty{padding:20px}}
+@media(max-width:740px){.activity{height:390px;padding:18px 15px}.feed-body p{font-size:13px}.activity-heading h2{font-size:18px}.activity-entries{gap:7px}}

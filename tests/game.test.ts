@@ -1,0 +1,341 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { POST } from '../app/api/game/route';
+import { CHANCE_CARDS, drawChance } from '../lib/chance';
+import { DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, PROPERTY_RENTS, effectivePropertyLevel, propertyRent, propertyUpgradeCost, type Game } from '../lib/game';
+
+let fixtureNumber = 0;
+function fixture(): Game {
+  const game: Game = {
+    code: `TEST${++fixtureNumber}`,
+    players: [
+      {id:'alice',name:'Алиса',color:'#fff',money:15000,position:0},
+      {id:'bob',name:'Боб',color:'#000',money:15000,position:0},
+    ],
+    host:'alice',started:true,turn:0,phase:'roll',owners:{},levels:{},turnSerial:1,
+    lastUpgradeTurn:{},mortgaged:[],mortgageTurns:{},dice:[],log:[],revision:0,
+  };
+  (globalThis as typeof globalThis & {monopolyRooms:Map<string,Game>}).monopolyRooms.set(game.code,game);
+  return game;
+}
+
+async function act(game: Game, action: string, extra: Record<string,unknown> = {}, id = game.players[game.turn].id) {
+  const response = await POST(new Request('http://localhost/api/game', {
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,room:game.code,id,...extra}),
+  }));
+  return {status:response.status,body:await response.json()};
+}
+
+test('individual properties charge little; a street triples base rent and upgrades rise sharply', () => {
+  assert.equal(Object.keys(PROPERTY_RENTS).length,22);
+  assert.equal(propertyRent(1,0),20);
+  assert.equal(propertyRent(3,0),40);
+  assert.equal(propertyRent(39,0),500);
+  for (const [index,rents] of Object.entries(PROPERTY_RENTS)) {
+    assert.equal(rents.length,7);
+    assert.equal(rents[1],rents[0]*3);
+    assert.ok(rents.every((rent,level)=>level===0||rent>rents[level-1]));
+    assert.equal(propertyRent(Number(index),6),rents[6]);
+  }
+  assert.equal(effectivePropertyLevel({1:'alice'}, {}, 1),0);
+  assert.equal(effectivePropertyLevel({1:'alice',3:'alice'}, {}, 1),1);
+  assert.equal(effectivePropertyLevel({1:'alice',3:'alice'}, {1:2}, 1),3);
+  assert.equal(propertyUpgradeCost(1,0),500);
+  assert.equal(propertyUpgradeCost(1,4),500);
+  assert.equal(propertyUpgradeCost(11,0),1000);
+  assert.equal(propertyUpgradeCost(21,0),1500);
+  assert.equal(propertyUpgradeCost(39,0),2000);
+});
+
+test('rent uses the landed property tariff and a payment cannot be applied twice', async t => {
+  let now=10000;
+  t.mock.method(Date,'now',()=>now);
+  const dice=[0,0.2];
+  t.mock.method(Math,'random',()=>dice.shift()??0);
+  const game=fixture();
+  game.owners={1:'bob',3:'bob'};
+  assert.equal((await act(game,'roll')).status,200);
+  assert.equal(game.players[0].position,3);
+  assert.equal(game.debt?.amount,120);
+  assert.equal(game.players[0].money,15000);
+  assert.equal((await act(game,'pay')).status,400);
+  now+=10000;
+  assert.equal((await act(game,'pay')).status,200);
+  assert.equal(game.players[0].money,14880);
+  assert.equal(game.players[1].money,15120);
+  assert.equal((await act(game,'pay',{},'alice')).status,400);
+});
+
+test('diamond requires confirmation, charges exactly 1000 and permits financing insufficient cash', async t => {
+  let now=10000;
+  t.mock.method(Date,'now',()=>now);
+  const dice=[0,0.2];
+  t.mock.method(Math,'random',()=>dice.shift()??0);
+  const game=fixture();
+  game.players[0].position=33;
+  game.players[0].money=100;
+  await act(game,'roll');
+  assert.equal(game.players[0].position,36);
+  assert.equal(game.phase,'pay');
+  assert.equal(game.debt?.kind,'diamond');
+  assert.equal(game.debt?.amount,DIAMOND_FEE);
+  assert.equal(game.players[0].money,100);
+  assert.equal((await act(game,'loanTake')).status,400);
+  now+=10000;
+  assert.equal((await act(game,'pay')).status,400);
+  assert.equal((await act(game,'loanTake')).status,200);
+  assert.equal(game.debt?.amount,1000);
+  assert.equal((await act(game,'pay')).status,200);
+  assert.equal(game.players[0].money,2100);
+  assert.equal(game.players[0].loan?.turnsLeft,LOAN_TURNS-1);
+  assert.equal((await act(game,'pay',{},'alice')).status,400);
+});
+
+test('positive chance card is applied once, after confirmation and movement', async t => {
+  let now=10000;
+  t.mock.method(Date,'now',()=>now);
+  const values=[0.34,0.51,0]; // 3 + 4, then dividend.
+  t.mock.method(Math,'random',()=>values.shift()??0);
+  const game=fixture();
+  await act(game,'roll');
+  assert.equal(game.players[0].position,7);
+  assert.equal(game.phase,'chanceResult');
+  assert.equal(game.chanceResult?.id,'dividend');
+  assert.equal(game.chanceResult?.amount,500);
+  assert.equal(game.players[0].money,15000);
+  assert.equal((await act(game,'chanceContinue')).status,400);
+  now+=10000;
+  assert.equal((await act(game,'chanceContinue',{},'bob')).status,400);
+  assert.equal((await act(game,'chanceContinue')).status,200);
+  assert.equal(game.players[0].money,15500);
+  assert.equal(game.chanceResult,undefined);
+  assert.equal((await act(game,'chanceContinue',{},'alice')).status,400);
+});
+
+test('negative chance cards create payable debt instead of making a balance negative', async t => {
+  let now=10000;
+  t.mock.method(Date,'now',()=>now);
+  const values=[0.34,0.51,0.6]; // Insurance: -400.
+  t.mock.method(Math,'random',()=>values.shift()??0);
+  const game=fixture();
+  game.players[0].money=100;
+  await act(game,'roll');
+  assert.equal(game.chanceResult?.amount,-400);
+  now+=10000;
+  await act(game,'chanceContinue');
+  assert.equal(game.phase,'pay');
+  assert.equal(game.debt?.kind,'chance');
+  assert.equal(game.debt?.amount,400);
+  assert.equal(game.players[0].money,100);
+  assert.equal((await act(game,'pay')).status,400);
+  assert.equal(game.players[0].money,100);
+});
+
+test('a chance reward from a room created before the update can be acknowledged without a second payout', async () => {
+  const game=fixture();
+  game.phase='chanceResult';
+  game.players[0].money=15500;
+  assert.equal((await act(game,'chanceContinue',{},'bob')).status,400);
+  assert.equal((await act(game,'chanceContinue')).status,200);
+  assert.equal(game.players[0].money,15500);
+  assert.equal(game.turn,1);
+  assert.equal(game.phase,'roll');
+});
+
+test('chance has 12 distinct events, no immediate repeat, and portfolio-based amounts', t => {
+  const game=fixture(),player=game.players[0];
+  assert.equal(CHANCE_CARDS.length,12);
+  assert.equal(new Set(CHANCE_CARDS.map(card=>card.id)).size,12);
+  const random=t.mock.method(Math,'random',()=>0);
+  const first=drawChance(game,player);
+  game.lastChanceId=first.id;
+  assert.notEqual(drawChance(game,player).id,first.id);
+  game.lastChanceId=undefined;
+  game.owners={1:'alice',3:'alice',39:'bob'};
+  game.levels={1:2,3:5,39:5};
+  random.mock.mockImplementation(()=>10.1/12);
+  assert.equal(drawChance(game,player).amount,-1300);
+  random.mock.mockImplementation(()=>5.1/12);
+  assert.equal(drawChance(game,player).amount,400);
+});
+
+test('a loan is available once per game, only on the borrower turn after movement', async () => {
+  const game=fixture();
+  game.started=false;
+  assert.equal((await act(game,'loanTake')).status,400);
+  game.started=true;
+  assert.equal((await act(game,'loanTake',{},'bob')).status,400);
+  game.phase='auction';
+  assert.equal((await act(game,'loanTake')).status,400);
+  game.phase='finished';
+  assert.equal((await act(game,'loanTake')).status,400);
+  game.phase='roll';game.players[0].bankrupt=true;
+  assert.equal((await act(game,'loanTake')).status,400);
+  game.players[0].bankrupt=false;
+  game.animationUntil=Date.now()+10000;
+  assert.equal((await act(game,'loanTake')).status,400);
+  game.animationUntil=0;
+  assert.equal((await act(game,'loanTake')).status,200);
+  assert.equal(game.players[0].money,15000+LOAN_PRINCIPAL);
+  assert.deepEqual(game.players[0].loan,{principal:LOAN_PRINCIPAL,totalDue:LOAN_TOTAL_DUE,turnsLeft:LOAN_TURNS});
+  assert.equal((await act(game,'loanTake')).status,400);
+  assert.equal((await act(game,'loanRepay')).status,200);
+  assert.equal(game.players[0].money,14700);
+  assert.equal(game.players[0].loan,undefined);
+  assert.equal(game.players[0].loanUsed,true);
+  assert.equal((await act(game,'loanTake')).status,400);
+});
+
+test('five completed own turns mature a loan, opponent turns do not, payment preserves the turn', async () => {
+  const game=fixture();
+  await act(game,'loanTake');
+  for (let turn=0;turn<LOAN_TURNS;turn++) {
+    game.phase='pay';game.debt={amount:1,reason:'Test payment'};
+    await act(game,'pay');
+    assert.equal(game.players[0].loan?.turnsLeft,LOAN_TURNS-turn-1);
+    assert.equal(game.turn,1);
+    game.phase='pay';game.debt={amount:1,reason:'Test payment'};
+    await act(game,'pay');
+    assert.equal(game.turn,0);
+    assert.equal(game.players[0].loan?.turnsLeft,LOAN_TURNS-turn-1);
+  }
+  assert.equal(game.phase,'pay');
+  assert.equal(game.debt?.kind,'loan');
+  assert.equal(game.debt?.amount,LOAN_TOTAL_DUE);
+  assert.equal((await act(game,'roll')).status,400);
+  const serial=game.turnSerial;
+  await act(game,'pay');
+  assert.equal(game.turn,0);
+  assert.equal(game.turnSerial,serial);
+  assert.equal(game.phase,'roll');
+  assert.equal(game.players[0].loan,undefined);
+  assert.equal(game.players[0].money,14695);
+});
+
+test('loan maturity preserves jail status and extra turns', async () => {
+  const game=fixture();
+  game.players[0].jailed=true;
+  game.players[0].jailAttempts=2;
+  game.players[0].loan={principal:3000,totalDue:3300,turnsLeft:0};
+  game.players[0].loanUsed=true;
+  game.turn=1;game.phase='pay';game.debt={amount:1,reason:'Test'};
+  await act(game,'pay');
+  assert.equal(game.debt?.kind,'loan');
+  await act(game,'pay');
+  assert.equal(game.phase,'jail');
+  assert.equal(game.players[0].jailed,true);
+  assert.equal(game.players[0].jailAttempts,2);
+
+  const extra=fixture();
+  extra.players[0].loan={principal:3000,totalDue:3300,turnsLeft:1};
+  extra.players[0].loanUsed=true;
+  extra.players[0].doubles=1;
+  extra.extraTurn='alice';extra.phase='pay';extra.debt={amount:1,reason:'Test'};
+  await act(extra,'pay');
+  assert.equal(extra.turn,0);
+  assert.equal(extra.debt?.kind,'loan');
+  await act(extra,'pay');
+  assert.equal(extra.phase,'roll');
+  assert.equal(extra.turn,0);
+  assert.equal(extra.players[0].doubles,1);
+});
+
+test('loan cannot be repaid ahead of a mandatory payment or with insufficient funds', async () => {
+  const game=fixture();
+  await act(game,'loanTake');
+  game.phase='pay';game.debt={amount:1000,reason:'Diamond',kind:'diamond'};
+  assert.equal((await act(game,'loanRepay')).status,400);
+  assert.equal(game.debt.amount,1000);
+  game.phase='roll';game.debt=undefined;game.players[0].money=100;
+  assert.equal((await act(game,'loanRepay')).status,400);
+  assert.equal(game.players[0].loan?.totalDue,3300);
+});
+
+test('default on a mature loan clears the loan and releases mortgaged assets to the bank', async () => {
+  const game=fixture();
+  game.players[0].money=10;
+  game.players[0].loan={principal:3000,totalDue:3300,turnsLeft:0};
+  game.players[0].loanUsed=true;
+  game.owners={1:'alice'};game.mortgaged=[1];game.mortgageTurns={1:10};
+  game.phase='pay';game.debt={amount:3300,reason:'Погашение кредита',kind:'loan',afterPayment:'resumeTurn'};
+  assert.equal((await act(game,'bankrupt')).status,200);
+  assert.equal(game.players[0].bankrupt,true);
+  assert.equal(game.players[0].loan,undefined);
+  assert.equal(game.owners[1],undefined);
+  assert.equal(game.mortgaged.length,0);
+  assert.equal(game.phase,'finished');
+  assert.equal(game.winner,'bob');
+});
+
+test('bots confirm chance and diamond debts, take a rescue loan, and pay without stalling', async t => {
+  const callbacks:Array<()=>Promise<void>>=[];
+  t.mock.method(globalThis,'setTimeout',(callback:()=>Promise<void>)=>{
+    callbacks.push(callback);
+    return {} as ReturnType<typeof setTimeout>;
+  });
+  for (const scenario of ['chance','diamond']) {
+    const game=fixture();
+    game.players[0].bot=true;
+    game.players[0].money=100;
+    if(scenario==='chance'){
+      game.phase='chanceResult';
+      game.chanceResult={id:'test',title:'Расход',description:'Тестовый расход',amount:-1000,playerId:'alice'};
+    }else{
+      game.phase='pay';
+      game.debt={amount:1000,reason:'Бриллиант',kind:'diamond'};
+    }
+    await act(game,'chat',{message:'Продолжаем'},'bob');
+    if(scenario==='chance'){
+      assert.equal(callbacks.length,1);
+      await callbacks.shift()!();
+      assert.equal(game.phase,'pay');
+      assert.equal(game.debt?.kind,'chance');
+    }
+    assert.equal(callbacks.length,1);
+    await callbacks.shift()!();
+    assert.equal(game.players[0].money,3100);
+    assert.equal(game.players[0].loanUsed,true);
+    assert.equal(game.debt?.amount,1000);
+    assert.equal(callbacks.length,1);
+    await callbacks.shift()!();
+    assert.equal(game.players[0].money,2100);
+    assert.equal(game.players[0].loan?.turnsLeft,4);
+    assert.equal(game.turn,1);
+    assert.equal(game.phase,'roll');
+    assert.equal(callbacks.length,0);
+  }
+});
+
+test('bots repay mature loans before rolling and default when no rescue is available', async t => {
+  const callbacks:Array<()=>Promise<void>>=[];
+  t.mock.method(globalThis,'setTimeout',(callback:()=>Promise<void>)=>{
+    callbacks.push(callback);
+    return {} as ReturnType<typeof setTimeout>;
+  });
+  const solvent=fixture();
+  solvent.players[0].bot=true;solvent.players[0].money=3300;
+  solvent.players[0].loanUsed=true;solvent.players[0].loan={principal:3000,totalDue:3300,turnsLeft:0};
+  solvent.phase='pay';solvent.debt={amount:3300,reason:'Погашение кредита',kind:'loan',afterPayment:'resumeTurn'};
+  await act(solvent,'chat',{message:'Продолжаем'},'bob');
+  await callbacks.shift()!();
+  assert.equal(solvent.players[0].money,0);
+  assert.equal(solvent.players[0].loan,undefined);
+  assert.equal(solvent.phase,'roll');
+  assert.equal(solvent.turn,0);
+  assert.equal(callbacks.length,1);
+  // The next queued action is the bot's roll. End this isolated fixture here.
+  solvent.phase='finished';
+  await callbacks.shift()!();
+
+  const insolvent=fixture();
+  insolvent.players[0].bot=true;insolvent.players[0].money=100;
+  insolvent.players[0].loanUsed=true;insolvent.players[0].loan={principal:3000,totalDue:3300,turnsLeft:0};
+  insolvent.phase='pay';insolvent.debt={amount:3300,reason:'Погашение кредита',kind:'loan',afterPayment:'resumeTurn'};
+  await act(insolvent,'chat',{message:'Продолжаем'},'bob');
+  await callbacks.shift()!();
+  assert.equal(insolvent.players[0].bankrupt,true);
+  assert.equal(insolvent.players[0].loan,undefined);
+  assert.equal(insolvent.phase,'finished');
+  assert.equal(insolvent.winner,'bob');
+  assert.equal(callbacks.length,0);
+});

@@ -1,4 +1,5 @@
-import { colors, DICE_ROLL_MS, TOKEN_STEP_MS, MAX_PROPERTY_LEVEL, MORTGAGE_TURNS, JACKPOT_BET, JACKPOT_PAYOUTS, isDiceRent, diceRentFactor, isCarCompany, carRent, propertyRent, propertyUpgradeCost, ownsFullGroup, effectivePropertyLevel, groupHasMortgage, Game, Player, tiles, Trade } from '@/lib/game';
+import { colors, DICE_ROLL_MS, TOKEN_STEP_MS, MAX_PROPERTY_LEVEL, MORTGAGE_TURNS, JACKPOT_BET, JACKPOT_PAYOUTS, DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, isDiceRent, diceRentFactor, isCarCompany, carRent, propertyRent, propertyUpgradeCost, ownsFullGroup, effectivePropertyLevel, groupHasMortgage, type Game, type Player, tiles, type Trade } from '@/lib/game';
+import { drawChance } from '@/lib/chance';
 
 const globalStore = globalThis as typeof globalThis & { monopolyRooms?: Map<string, Game> };
 const rooms = globalStore.monopolyRooms ??= new Map<string, Game>();
@@ -16,12 +17,24 @@ function advanceMortgages(g:Game, ownerId:string){
   log(g,`${tiles[i].name} возвращается банку: срок залога истёк`);
  }
 }
+function beginTurn(g: Game) {
+ const player = current(g);
+ g.debt = undefined;
+ g.auction = undefined;
+ g.chanceResult = undefined;
+ g.phase = player.jailed ? 'jail' : 'roll';
+ if (player.loan && player.loan.turnsLeft <= 0) {
+  g.debt = {amount: player.loan.totalDue, reason:'Погашение кредита', kind:'loan', afterPayment:'resumeTurn'};
+  g.phase = 'pay';
+  log(g, `${player.name}: наступил срок возврата кредита — ${player.loan.totalDue}k`);
+ }
+}
 function next(g:Game){
- const player=current(g);advanceMortgages(g,player.id);const alive=g.players.filter(p=>!p.bankrupt);
- if(alive.length<=1){g.phase='finished';g.winner=alive[0]?.id;g.extraTurn=undefined;return}
- if(g.extraTurn===player.id&&!player.bankrupt&&!player.jailed){g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;g.phase='roll';g.debt=undefined;g.auction=undefined;log(g,`${player.name} получает ещё один ход за дубль`);return}
+ const player=current(g);advanceMortgages(g,player.id);if(player.loan)player.loan.turnsLeft=Math.max(0,player.loan.turnsLeft-1);const alive=g.players.filter(p=>!p.bankrupt);
+ if(alive.length<=1){g.phase='finished';g.winner=alive[0]?.id;g.extraTurn=undefined;g.debt=undefined;g.auction=undefined;g.chanceResult=undefined;return}
+ if(g.extraTurn===player.id&&!player.bankrupt&&!player.jailed){g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;beginTurn(g);log(g,`${player.name} получает ещё один ход за дубль`);return}
  g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;player.doubles=0;
- do { g.turn=(g.turn+1)%g.players.length } while(current(g).bankrupt);g.phase=current(g).jailed?'jail':'roll';g.debt=undefined;g.auction=undefined;
+ do { g.turn=(g.turn+1)%g.players.length } while(current(g).bankrupt);beginTurn(g);
 }
 function movePlayer(g:Game,p:Player,d1:number,d2:number){
  const steps=d1+d2, old=p.position; p.position=(old+steps)%40;
@@ -35,11 +48,11 @@ function movePlayer(g:Game,p:Player,d1:number,d2:number){
  if(tile.price&&!owner)g.phase='buy';
  else if(tile.price&&owner!==p.id&&!g.mortgaged.includes(landed)){
   const receiver=g.players.find(x=>x.id===owner);
-  if(receiver&&!receiver.bankrupt){const amount=isDiceRent(landed)?diceRentFactor(g.owners,landed)*steps:isCarCompany(landed)?carRent(g.owners,landed):propertyRent(tile.price,effectivePropertyLevel(g.owners,g.levels,landed));g.debt={amount,to:owner,reason:`Аренда «${tile.name}»`};g.phase='pay'}else next(g);
+  if(receiver&&!receiver.bankrupt){const amount=isDiceRent(landed)?diceRentFactor(g.owners,landed)*steps:isCarCompany(landed)?carRent(g.owners,landed):propertyRent(landed,effectivePropertyLevel(g.owners,g.levels,landed));g.debt={amount,to:owner,reason:`Аренда «${tile.name}»`};g.phase='pay'}else next(g);
  }else if(tile.kind==='tax'){g.debt={amount:2000,reason:'Клетка «Деньги»'};g.phase='pay'}
  else if(tile.kind==='jackpot'){g.phase='jackpot'}
- else if(tile.kind==='chance'){if(Math.random()<.5){p.money+=500;log(g,`${p.name} получает 500k по карточке «Шанс»`);g.phase='chanceResult'}else{g.debt={amount:500,reason:'Карточка «Шанс»'};g.phase='pay'}}
- else if(tile.kind==='bonus'){p.money+=500;log(g,`${p.name} получает 500k от банка`);next(g)}else next(g);
+ else if(tile.kind==='chance'){g.chanceResult=drawChance(g,p);g.lastChanceId=g.chanceResult.id;g.phase='chanceResult';log(g,`${p.name}: «Шанс» — ${g.chanceResult.title}`)}
+ else if(tile.kind==='diamond'){g.debt={amount:DIAMOND_FEE,reason:'Налог на роскошь · Бриллиант',kind:'diamond'};g.phase='pay'}else next(g);
 }
 function autoPassAuction(g:Game){
  const auction=g.auction;if(g.phase!=='auction'||!auction)return;
@@ -91,6 +104,7 @@ function scheduleBot(g: Game, delay = 850) {
    else if (room.phase === 'buy') action = bot.money >= (tiles[bot.position].price || 0) ? 'buy' : 'auction';
    else if (room.phase === 'pay' && room.debt) {
     if (bot.money >= room.debt.amount) action = 'pay';
+    else if (!bot.loanUsed && !bot.loan) action = 'loanTake';
     else {
      const property = Object.keys(room.owners).map(Number).filter(i => room.owners[i] === bot!.id && !room.mortgaged.includes(i)).sort((a, b) => (tiles[b].price || 0) - (tiles[a].price || 0))[0];
      action = property === undefined ? 'bankrupt' : (room.levels?.[property]||0)>0 ? 'sellUpgrade' : 'mortgage'; extra = { tile: property };
@@ -126,7 +140,25 @@ export async function POST(req:Request){
   }
  }
  else if(b.action==='jailPay'){if(current(g).id!==p.id||g.phase!=='jail'||!p.jailed)return fail('Выход из тюрьмы недоступен');g.debt={amount:500,reason:'Выход из тюрьмы',afterPayment:'releaseRoll'};g.phase='pay'}
- else if(b.action==='chanceContinue'){if(current(g).id!==p.id||g.phase!=='chanceResult')return fail('Подтверждение недоступно');next(g)}
+ else if(b.action==='chanceContinue'){
+  const card=g.chanceResult;
+  if(current(g).id!==p.id||g.phase!=='chanceResult'||(card&&card.playerId!==p.id)||Date.now()<(g.animationUntil||0))return fail('Подтверждение недоступно');
+  g.chanceResult=undefined;
+  if(!card){log(g,`${p.name} подтверждает уже полученную награду «Шанса»`);next(g)}
+  else if(card.amount<0){g.debt={amount:-card.amount,reason:`Шанс: ${card.title}`,kind:'chance'};g.phase='pay'}
+  else {p.money+=card.amount;log(g,`${p.name} получает ${card.amount}k: ${card.title}`);next(g)}
+ }
+ else if(b.action==='loanTake'){
+  if(!g.started||g.phase==='finished'||p.bankrupt||current(g).id!==p.id||g.phase==='auction'||Date.now()<(g.animationUntil||0))return fail('Кредит доступен только в свой ход после завершения движения');
+  if(p.loan||p.loanUsed)return fail('Кредит можно взять только один раз за игру');
+  p.loan={principal:LOAN_PRINCIPAL,totalDue:LOAN_TOTAL_DUE,turnsLeft:LOAN_TURNS};p.loanUsed=true;p.money+=LOAN_PRINCIPAL;
+  log(g,`${p.name} берёт кредит ${LOAN_PRINCIPAL}k: вернуть ${LOAN_TOTAL_DUE}k через ${LOAN_TURNS} своих ходов`);
+ }
+ else if(b.action==='loanRepay'){
+  if(!g.started||g.phase==='finished'||p.bankrupt||current(g).id!==p.id||g.phase==='pay'||g.phase==='auction'||Date.now()<(g.animationUntil||0)||!p.loan)return fail('Досрочное погашение сейчас недоступно');
+  if(p.money<p.loan.totalDue)return fail('Недостаточно денег для погашения кредита');
+  const amount=p.loan.totalDue;p.money-=amount;p.loan=undefined;log(g,`${p.name} досрочно погашает кредит: ${amount}k`);
+ }
  else if(b.action==='jackpotSkip'){if(current(g).id!==p.id||g.phase!=='jackpot')return fail('Джекпот недоступен');log(g,`${p.name} пропускает джекпот`);next(g)}
  else if(b.action==='jackpotBet'){const numbers=b.numbers;if(current(g).id!==p.id||g.phase!=='jackpot'||!Array.isArray(numbers)||numbers.length<1||numbers.length>3||new Set(numbers).size!==numbers.length||numbers.some((n:unknown)=>!Number.isInteger(n)||Number(n)<1||Number(n)>6)||p.money<JACKPOT_BET)return fail('Выберите от одного до трёх чисел и проверьте баланс');p.money-=JACKPOT_BET;const result=1+Math.floor(Math.random()*6),payout=numbers.includes(result)?JACKPOT_PAYOUTS[numbers.length]:0;p.money+=payout;g.jackpotResult={playerId:p.id,choice:numbers,result,payout};g.phase='jackpotResult';g.animationUntil=Date.now()+1100}
  else if(b.action==='jackpotContinue'){if(current(g).id!==p.id||g.phase!=='jackpotResult'||Date.now()<(g.animationUntil||0)||!g.jackpotResult)return fail('Дождитесь результата джекпота');const result=g.jackpotResult;log(g,`${p.name}: джекпот — выпало ${result.result}, ${result.payout?`выплата ${result.payout}k`:'ставка проиграна'}`);next(g)}
@@ -134,12 +166,22 @@ export async function POST(req:Request){
  else if(b.action==='auction'){if(current(g).id!==p.id||g.phase!=='buy')return fail('Аукцион недоступен');g.auction={tile:p.position,bid:0,passed:[p.id],seller:p.id};g.phase='auction';log(g,`Начинается аукцион: ${tiles[p.position].name}`);settleAuction(g)}
  else if(b.action==='bid'){const a=g.auction;const amount=Number(b.amount);if(g.phase!=='auction'||!a||p.bankrupt||a.passed.includes(p.id)||!Number.isSafeInteger(amount)||amount%2!==0||amount<(tiles[a.tile].price||0)||amount<=a.bid||amount>p.money)return fail('Ставка должна быть чётной, не ниже стоимости компании и выше текущей ставки');a.bid=amount;a.bidder=p.id;log(g,`${p.name} предлагает ${amount}k`);settleAuction(g)}
  else if(b.action==='pass'){const a=g.auction;if(g.phase!=='auction'||!a||p.bankrupt||a.passed.includes(p.id)||a.bidder===p.id)return fail('Сейчас нельзя отказаться');a.passed.push(p.id);settleAuction(g)}
- else if(b.action==='pay'){if(current(g).id!==p.id||g.phase!=='pay'||!g.debt)return fail('Платёж недоступен');if(p.money<g.debt.amount)return fail('Недостаточно денег. Выберите имущество для залога');const debt=g.debt;p.money-=debt.amount;const receiver=g.players.find(x=>x.id===debt.to);if(receiver)receiver.money+=debt.amount;log(g,`${p.name} платит ${debt.amount}k${receiver?' игроку '+receiver.name:' банку'}`);if(debt.afterPayment){p.jailed=false;p.jailAttempts=0;log(g,`${p.name} выходит из тюрьмы`)}if(debt.afterPayment==='releaseRoll'){g.debt=undefined;g.phase='roll'}else if(debt.afterPayment==='releaseEnd'){g.debt=undefined;movePlayer(g,p,g.dice[0],g.dice[1])}else next(g)}
- else if(b.action==='upgrade'){const i=Number(b.tile),tile=tiles[i],level=g.levels[i]||0,cost=tile?.price?propertyUpgradeCost(tile.price,level):0;const groupKey=tile?.group||'';if(!g.started||g.phase==='finished'||p.bankrupt||g.owners[i]!==p.id||!tile?.price||isDiceRent(i)||isCarCompany(i)||g.mortgaged.includes(i)||level>=MAX_PROPERTY_LEVEL)return fail('Улучшение недоступно');if(!ownsFullGroup(g.owners,i))return fail('Для улучшения выкупите всю улицу');if(groupHasMortgage(g.mortgaged,i))return fail('Сначала выкупите из залога все компании этой улицы');if(g.lastUpgradeTurn[groupKey]===g.turnSerial)return fail('Эту улицу уже улучшали в текущем ходу');if(g.phase==='pay'&&current(g).id===p.id)return fail('Сначала погасите задолженность');if(p.money<cost||(g.auction?.bidder===p.id&&p.money-cost<g.auction.bid))return fail('Недостаточно свободных средств для улучшения');p.money-=cost;g.levels[i]=level+1;g.lastUpgradeTurn[groupKey]=g.turnSerial;log(g,`${p.name} улучшает ${tile.name} до уровня ${level+2}`)}
- else if(b.action==='sellUpgrade'){const i=Number(b.tile),tile=tiles[i],level=g.levels[i]||0;if(!g.started||g.phase==='finished'||p.bankrupt||g.owners[i]!==p.id||!tile?.price||g.mortgaged.includes(i)||level<1)return fail('Нельзя продать улучшение');const amount=Math.floor(propertyUpgradeCost(tile.price,level-1)/2);g.levels[i]=level-1;p.money+=amount;log(g,`${p.name} продаёт улучшение ${tile.name} за ${amount}k`)}
+ else if(b.action==='pay'){
+  if(current(g).id!==p.id||g.phase!=='pay'||!g.debt||Date.now()<(g.animationUntil||0))return fail('Платёж недоступен');
+  if(p.money<g.debt.amount)return fail('Недостаточно денег. Возьмите кредит или выберите имущество для залога');
+  const debt=g.debt;p.money-=debt.amount;const receiver=g.players.find(x=>x.id===debt.to);if(receiver)receiver.money+=debt.amount;
+  log(g,`${p.name} платит ${debt.amount}k${receiver?' игроку '+receiver.name:' банку'} · ${debt.reason}`);
+  if(debt.kind==='loan'){p.loan=undefined;g.debt=undefined;g.phase=p.jailed?'jail':'roll'}
+  else if(debt.afterPayment==='releaseRoll'||debt.afterPayment==='releaseEnd'){
+   p.jailed=false;p.jailAttempts=0;log(g,`${p.name} выходит из тюрьмы`);g.debt=undefined;
+   if(debt.afterPayment==='releaseRoll')g.phase='roll';else movePlayer(g,p,g.dice[0],g.dice[1]);
+  }else next(g);
+ }
+ else if(b.action==='upgrade'){const i=Number(b.tile),tile=tiles[i],level=g.levels[i]||0,cost=tile?.price?propertyUpgradeCost(i,level):0;const groupKey=tile?.group||'';if(!g.started||g.phase==='finished'||p.bankrupt||g.owners[i]!==p.id||!tile?.price||isDiceRent(i)||isCarCompany(i)||g.mortgaged.includes(i)||level>=MAX_PROPERTY_LEVEL)return fail('Улучшение недоступно');if(!ownsFullGroup(g.owners,i))return fail('Для улучшения выкупите всю улицу');if(groupHasMortgage(g.mortgaged,i))return fail('Сначала выкупите из залога все компании этой улицы');if(g.lastUpgradeTurn[groupKey]===g.turnSerial)return fail('Эту улицу уже улучшали в текущем ходу');if(g.phase==='pay'&&current(g).id===p.id)return fail('Сначала погасите задолженность');if(p.money<cost||(g.auction?.bidder===p.id&&p.money-cost<g.auction.bid))return fail('Недостаточно свободных средств для улучшения');p.money-=cost;g.levels[i]=level+1;g.lastUpgradeTurn[groupKey]=g.turnSerial;log(g,`${p.name} улучшает ${tile.name} до уровня ${level+2}`)}
+ else if(b.action==='sellUpgrade'){const i=Number(b.tile),tile=tiles[i],level=g.levels[i]||0;if(!g.started||g.phase==='finished'||p.bankrupt||g.owners[i]!==p.id||!tile?.price||g.mortgaged.includes(i)||level<1)return fail('Нельзя продать улучшение');const amount=Math.floor(propertyUpgradeCost(i,level-1)/2);g.levels[i]=level-1;p.money+=amount;log(g,`${p.name} продаёт улучшение ${tile.name} за ${amount}k`)}
  else if(b.action==='mortgage'){const i=Number(b.tile);if(g.owners[i]!==p.id||g.mortgaged.includes(i)||!tiles[i]?.price||(g.levels[i]||0)>0)return fail('Сначала продайте улучшения этой компании');g.mortgaged.push(i);g.mortgageTurns[i]=MORTGAGE_TURNS;p.money+=Math.floor(tiles[i].price!/2);log(g,`${p.name} закладывает ${tiles[i].name}`)}
  else if(b.action==='unmortgage'){const i=Number(b.tile);const amount=Math.ceil((tiles[i]?.price||0)*.55);if(g.owners[i]!==p.id||!g.mortgaged.includes(i)||p.money<amount)return fail('Не удалось выкупить компанию');g.mortgaged=g.mortgaged.filter(x=>x!==i);delete g.mortgageTurns[i];p.money-=amount;log(g,`${p.name} выкупает ${tiles[i].name} из залога`)}
- else if(b.action==='bankrupt'){if(current(g).id!==p.id||g.phase!=='pay'||!g.debt||p.money>=g.debt.amount||Object.keys(g.owners).some(i=>g!.owners[Number(i)]===p!.id&&!g!.mortgaged.includes(Number(i))))return fail('Сначала заложите доступное имущество');const receiver=g.players.find(x=>x.id===g!.debt?.to);if(receiver)receiver.money+=p.money;for(const key of Object.keys(g.owners)){const i=Number(key);if(g.owners[i]===p.id){if(receiver)g.owners[i]=receiver.id;else{delete g.owners[i];delete g.levels[i];delete g.mortgageTurns[i];g.mortgaged=g.mortgaged.filter(x=>x!==i)}}}p.money=0;p.bankrupt=true;log(g,`${p.name} объявляет банкротство`);next(g)}
+ else if(b.action==='bankrupt'){if(current(g).id!==p.id||g.phase!=='pay'||!g.debt||p.money>=g.debt.amount||Object.keys(g.owners).some(i=>g!.owners[Number(i)]===p!.id&&!g!.mortgaged.includes(Number(i))))return fail('Сначала заложите доступное имущество');const receiver=g.players.find(x=>x.id===g!.debt?.to);if(receiver)receiver.money+=p.money;for(const key of Object.keys(g.owners)){const i=Number(key);if(g.owners[i]===p.id){if(receiver)g.owners[i]=receiver.id;else{delete g.owners[i];delete g.levels[i];delete g.mortgageTurns[i];g.mortgaged=g.mortgaged.filter(x=>x!==i)}}}p.money=0;p.bankrupt=true;p.loan=undefined;log(g,`${p.name} объявляет банкротство`);next(g)}
  else if(b.action==='trade'){const t=b.trade as Trade;const target=g.players.find(x=>x.id===t?.to);if(!g.started||p.bankrupt||!target||target.id===p.id||target.bankrupt||g.trade)return fail('Сделка недоступна');const give=Array.isArray(t.give)?t.give:[],take=Array.isArray(t.take)?t.take:[];const gc=Number(t.giveCash),tc=Number(t.takeCash);if(!Number.isSafeInteger(gc)||!Number.isSafeInteger(tc)||gc<0||tc<0||gc>p.money||tc>target.money||give.some(i=>g!.owners[i]!==p!.id)||take.some(i=>g!.owners[i]!==target.id)||new Set(give).size!==give.length||new Set(take).size!==take.length)return fail('Проверьте условия сделки');g.trade={id:crypto.randomUUID(),from:p.id,to:target.id,give,take,giveCash:gc,takeCash:tc};log(g,`${p.name} предлагает сделку игроку ${target.name}`)}
  else if(b.action==='tradeResponse'){const t=g.trade;if(!t||t.to!==p.id)return fail('Предложение недоступно');const from=g.players.find(x=>x.id===t.from)!;if(b.accept){if(from.bankrupt||p.bankrupt||from.money<t.giveCash||p.money<t.takeCash||t.give.some(i=>g!.owners[i]!==from.id)||t.take.some(i=>g!.owners[i]!==p!.id))return fail('Условия сделки изменились');from.money+=t.takeCash-t.giveCash;p.money+=t.giveCash-t.takeCash;t.give.forEach(i=>g!.owners[i]=p!.id);t.take.forEach(i=>g!.owners[i]=from.id);log(g,`${p.name} принимает сделку с ${from.name}`)}else log(g,`${p.name} отклоняет сделку`);g.trade=undefined}
  else if(b.action==='cancelTrade'){if(g.trade?.from!==p.id)return fail('Сделка недоступна');g.trade=undefined}
