@@ -351,6 +351,8 @@ test('capital and liquidation value account for improvements, mortgages and loan
 
 test('bankruptcy is allowed before liquidating assets only when they cannot cover the debt', async () => {
   const game=fixture();game.players[0].money=100;game.owners={1:'alice'};game.levels={1:2};
+  game.owners[3]='alice';game.mortgaged=[3];game.mortgageTurns={3:4};
+  game.owners[39]='bob';
   game.phase='pay';game.debt={amount:900,reason:'Аренда',to:'bob'};
   assert.equal(liquidFunds(game,game.players[0]),900);
   assert.equal((await act(game,'bankrupt')).status,400);
@@ -358,8 +360,12 @@ test('bankruptcy is allowed before liquidating assets only when they cannot cove
   assert.equal((await act(game,'bankrupt')).status,200);
   assert.equal(game.players[0].bankrupt,true);
   assert.equal(game.players[1].money,15100);
-  assert.equal(game.owners[1],'bob');
-  assert.equal(game.levels?.[1],2);
+  assert.equal(game.owners[1],undefined);
+  assert.equal(game.owners[3],undefined);
+  assert.equal(game.owners[39],'bob');
+  assert.equal(game.levels?.[1],undefined);
+  assert.deepEqual(game.mortgaged,[]);
+  assert.equal(game.mortgageTurns?.[3],undefined);
   assert.equal(game.winner,'bob');
 });
 
@@ -384,11 +390,11 @@ test('surrender outside a turn cancels trades and auction bids while the game co
   assert.equal((await act(game,'surrender',{},'bob')).status,400);
 });
 
-test('surrender on the current turn transfers assets to the creditor and advances', async () => {
+test('surrender on the current turn releases businesses and gives cash to the creditor', async () => {
   const game=fixture();game.players.push({id:'carol',name:'Кэрол',color:'#aaa',money:1000,position:0});
   game.players[0].money=100;game.owners={1:'alice'};game.phase='pay';game.debt={amount:500,reason:'Аренда',to:'bob'};
   assert.equal((await act(game,'surrender')).status,200);
-  assert.equal(game.owners[1],'bob');assert.equal(game.players[1].money,15100);
+  assert.equal(game.owners[1],undefined);assert.equal(game.players[1].money,15100);
   assert.equal(game.turn,1);assert.equal(game.phase,'roll');
 });
 

@@ -39,7 +39,7 @@ function next(g:Game){
 function eliminate(g:Game, player:Player, receiver:Player | undefined, reason:string) {
  if(g.trade && (g.trade.from===player.id || g.trade.to===player.id)) { g.trade=undefined; log(g,'Сделка отменена: игрок выбыл'); }
  if(receiver && !receiver.bankrupt) receiver.money+=player.money;
- for(const key of Object.keys(g.owners)){const i=Number(key);if(g.owners[i]!==player.id)continue;if(receiver && !receiver.bankrupt)g.owners[i]=receiver.id;else{delete g.owners[i];delete g.levels?.[i];delete g.mortgageTurns?.[i];g.mortgaged=g.mortgaged.filter(x=>x!==i)}}
+ for(const key of Object.keys(g.owners)){const i=Number(key);if(g.owners[i]!==player.id)continue;delete g.owners[i];delete g.levels?.[i];delete g.mortgageTurns?.[i];g.mortgaged=g.mortgaged.filter(x=>x!==i)}
  player.money=0;player.bankrupt=true;player.loan=undefined;log(g,`${player.name} ${reason}`);
  if(current(g).id===player.id){next(g);return}
  if(g.debt?.to===player.id)g.debt.to=undefined;
