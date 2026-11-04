@@ -391,3 +391,18 @@ test('surrender on the current turn transfers assets to the creditor and advance
   assert.equal(game.owners[1],'bob');assert.equal(game.players[1].money,15100);
   assert.equal(game.turn,1);assert.equal(game.phase,'roll');
 });
+
+
+test('a player may improve a business only during their own turn', async () => {
+  const game=fixture();
+  game.owners={1:'alice',3:'alice'};
+  game.turn=1;
+  assert.equal((await act(game,'upgrade',{tile:1},'alice')).status,400);
+  assert.equal(game.players[0].money,15000);
+  assert.equal(game.levels?.[1],undefined);
+  game.turn=0;
+  assert.equal((await act(game,'upgrade',{tile:1},'alice')).status,200);
+  assert.equal(game.players[0].money,14500);
+  assert.equal(game.levels?.[1],1);
+  assert.equal((await act(game,'upgrade',{tile:3},'alice')).status,400);
+});
