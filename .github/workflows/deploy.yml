@@ -1,0 +1,90 @@
+name: Check and deploy
+
+on:
+  push:
+    branches: [prod]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monopoly-club-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: bash deploy/test-activation.sh
+      - run: npm run build
+      - name: Package standalone release
+        run: |
+          cp -R public .next/standalone/public
+          cp -R .next/static .next/standalone/.next/static
+          tar -C .next/standalone -czf "$RUNNER_TEMP/monopoly-release.tar.gz" .
+      - name: Smoke test the packaged server
+        shell: bash
+        run: |
+          PORT=31789 HOSTNAME=127.0.0.1 NODE_ENV=production node .next/standalone/server.js > "$RUNNER_TEMP/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          node deploy/smoke-test.mjs http://127.0.0.1:31789 || { cat "$RUNNER_TEMP/server.log"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monopoly-release
+          path: ${{ runner.temp }}/monopoly-release.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: monopoly-release
+          path: ${{ runner.temp }}
+      - name: Upload and activate release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          APP_PORT: ${{ secrets.APP_PORT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]{1,5}$ && "$APP_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ && "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/monopoly-deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh_args=(-i "$HOME/.ssh/monopoly-deploy" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ClearAllForwardings=yes)
+          upload="/srv/monopoly-club/incoming/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+          scp "${ssh_args[@]}" -P "$DEPLOY_SSH_PORT" "$RUNNER_TEMP/monopoly-release.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:$upload"
+          ssh "${ssh_args[@]}" -p "$DEPLOY_SSH_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash -s -- $GITHUB_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT $APP_PORT" < deploy/activate-release.sh
+      - name: Verify public game
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          APP_PORT: ${{ secrets.APP_PORT }}
+        shell: bash
+        run: |
+          [[ "$DEPLOY_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$APP_PORT" =~ ^[0-9]{1,5}$ ]]
+          node deploy/smoke-test.mjs "http://${DEPLOY_HOST//./-}.sslip.io:$APP_PORT"
