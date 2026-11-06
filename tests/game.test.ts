@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { POST } from '../app/api/game/route';
 import { CHANCE_CARDS, drawChance } from '../lib/chance';
-import { DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, PROPERTY_RENTS, effectivePropertyLevel, propertyRent, propertyUpgradeCost, playerCapital, liquidFunds, type Game } from '../lib/game';
+import { DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, PROPERTY_RENTS, effectivePropertyLevel, propertyRent, propertyUpgradeCost, playerCapital, liquidFunds, tiles, type Game } from '../lib/game';
 
 let fixtureNumber = 0;
 function fixture(): Game {
@@ -142,10 +142,10 @@ test('a chance reward from a room created before the update can be acknowledged 
   assert.equal(game.phase,'roll');
 });
 
-test('chance has 12 distinct events, no immediate repeat, and portfolio-based amounts', t => {
+test('chance has 13 distinct events, no immediate repeat, and portfolio-based amounts', t => {
   const game=fixture(),player=game.players[0];
-  assert.equal(CHANCE_CARDS.length,12);
-  assert.equal(new Set(CHANCE_CARDS.map(card=>card.id)).size,12);
+  assert.equal(CHANCE_CARDS.length,13);
+  assert.equal(new Set(CHANCE_CARDS.map(card=>card.id)).size,13);
   const random=t.mock.method(Math,'random',()=>0);
   const first=drawChance(game,player);
   game.lastChanceId=first.id;
@@ -153,9 +153,9 @@ test('chance has 12 distinct events, no immediate repeat, and portfolio-based am
   game.lastChanceId=undefined;
   game.owners={1:'alice',3:'alice',39:'bob'};
   game.levels={1:2,3:5,39:5};
-  random.mock.mockImplementation(()=>10.1/12);
+  random.mock.mockImplementation(()=>10.1/13);
   assert.equal(drawChance(game,player).amount,-1300);
-  random.mock.mockImplementation(()=>5.1/12);
+  random.mock.mockImplementation(()=>5.1/13);
   assert.equal(drawChance(game,player).amount,400);
 });
 
@@ -411,4 +411,38 @@ test('a player may improve a business only during their own turn', async () => {
   assert.equal(game.players[0].money,14500);
   assert.equal(game.levels?.[1],1);
   assert.equal((await act(game,'upgrade',{tile:3},'alice')).status,400);
+});
+
+
+test('chance moves to the next unowned company, crossing start and offering purchase once', async t => {
+  let now=10000;t.mock.method(Date,'now',()=>now);
+  const game=fixture();game.players[0].position=38;game.players[0].money=5000;game.owners={39:'bob'};
+  game.phase='chanceResult';game.chanceResult={id:'nearest-company',title:'Новые возможности',description:'Вперёд',amount:0,playerId:'alice',movement:'nearestAvailableCompany'};
+  assert.equal((await act(game,'chanceContinue',{},'bob')).status,400);
+  assert.equal((await act(game,'chanceContinue')).status,200);
+  assert.equal(game.players[0].position,1);assert.equal(game.players[0].money,7000);
+  assert.equal(game.phase,'buy');assert.deepEqual(game.move,{playerId:'alice',steps:3,noDice:true});
+  assert.equal(game.animationUntil,now+3*240);
+  assert.equal((await act(game,'chanceContinue')).status,400);
+  now+=10000;assert.equal((await act(game,'buy')).status,200);
+  assert.equal(game.owners[1],'alice');assert.equal(game.players[0].money,6400);
+});
+
+test('chance movement skips occupied companies and ends the turn if none are available', async () => {
+  const game=fixture();game.players[0].position=2;game.owners={3:'bob',5:'alice'};
+  game.phase='chanceResult';game.chanceResult={id:'nearest-company',title:'Новые возможности',description:'Вперёд',amount:0,playerId:'alice',movement:'nearestAvailableCompany'};
+  await act(game,'chanceContinue');assert.equal(game.players[0].position,6);assert.equal(game.phase,'buy');
+  const full=fixture();full.players[0].position=2;
+  for(let i=0;i<40;i++)if(tiles[i].price)full.owners[i]='bob';
+  full.phase='chanceResult';full.chanceResult={id:'nearest-company',title:'Новые возможности',description:'Вперёд',amount:0,playerId:'alice',movement:'nearestAvailableCompany'};
+  await act(full,'chanceContinue');assert.equal(full.players[0].position,2);assert.equal(full.turn,1);assert.equal(full.phase,'roll');
+});
+
+test('each player counts only their own dice rolls, including a jail attempt', async t => {
+  let now=10000;t.mock.method(Date,'now',()=>now);const rolls=[0,0.2,0,0.2];t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const game=fixture();game.players[0].jailed=true;game.phase='jail';
+  assert.equal((await act(game,'jailRoll',{},'bob')).status,400);
+  assert.equal(game.players[0].turnsTaken,undefined);
+  await act(game,'jailRoll');assert.equal(game.players[0].turnsTaken,1);assert.equal(game.players[1].turnsTaken,undefined);
+  now+=10000;await act(game,'roll');assert.equal(game.players[1].turnsTaken,1);assert.equal(game.players[0].turnsTaken,1);
 });

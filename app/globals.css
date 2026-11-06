@@ -225,3 +225,5 @@
 @media(max-width:740px){.activity{height:390px;padding:18px 15px}.feed-body p{font-size:13px}.activity-heading h2{font-size:18px}.activity-entries{gap:7px}}
 
 .player-capital{font-size:10px;color:#a9bbaa;margin-top:4px;white-space:nowrap}
+
+.player-turns{font-size:10px;color:#a9bbaa;margin-top:4px}.board{container-type:inline-size}.board-wordmark{color:#111;font-family:Arial,sans-serif;font-size:clamp(7px,1.85cqw,18px);font-weight:800;text-align:center;letter-spacing:-.03em}.board-wordmark span{display:block;max-width:88%;line-height:1.05;overflow-wrap:normal}.board-wordmark-side-0 span,.board-wordmark-side-2 span{transform:rotate(-90deg);min-width:155%}.replacement-property-logo{padding:5px;color:#111;font-size:clamp(7px,1.2cqw,12px);font-family:Arial,sans-serif;font-weight:800;text-align:center;line-height:1.1}.copy-modal input{width:100%;padding:12px;border:1px solid #758c75;background:#1c1c1f;color:white;font:inherit}

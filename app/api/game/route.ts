@@ -142,6 +142,7 @@ export async function POST(req:Request){
  else if(b.action==='start'){if(p.id!==g.host||g.started||g.players.length<2)return fail('Для начала нужны хотя бы два игрока');g.started=true;g.phase='roll';log(g,'Игра началась! Вперёд к новым победам')}
  else if(b.action==='roll'||b.action==='jailRoll') {
   const inJail=b.action==='jailRoll';if(current(g).id!==p.id||g.phase!==(inJail?'jail':'roll')||Date.now()<(g.animationUntil||0))return fail('Дождитесь своего хода и завершения движения');
+  p.turnsTaken=(p.turnsTaken||0)+1;
   const d1=1+Math.floor(Math.random()*6),d2=1+Math.floor(Math.random()*6);g.dice=[d1,d2];g.rollSeq=(g.rollSeq||0)+1;g.jackpotResult=undefined;
   if(inJail&&d1!==d2){p.jailAttempts=(p.jailAttempts||0)+1;p.doubles=0;g.extraTurn=undefined;g.move=undefined;g.animationUntil=Date.now()+DICE_ROLL_MS;log(g,`${p.name} выбрасывает ${d1}:${d2} в тюрьме — дубль не выпал`);if(p.jailAttempts>=3){g.debt={amount:500,reason:'Обязательный выход из тюрьмы',afterPayment:'releaseEnd'};g.phase='pay'}else next(g)}
   else {
@@ -156,6 +157,13 @@ export async function POST(req:Request){
   if(current(g).id!==p.id||g.phase!=='chanceResult'||(card&&card.playerId!==p.id)||Date.now()<(g.animationUntil||0))return fail('Подтверждение недоступно');
   g.chanceResult=undefined;
   if(!card){log(g,`${p.name} подтверждает уже полученную награду «Шанса»`);next(g)}
+  else if(card.movement==='nearestAvailableCompany'){
+   const old=p.position;const steps=Array.from({length:tiles.length-1},(_,i)=>i+1).find(n=>{const index=(old+n)%tiles.length;return !!tiles[index].price&&!g.owners[index]});
+   if(steps===undefined){log(g,`${p.name}: свободных компаний нет`);next(g)}
+   else {p.position=(old+steps)%tiles.length;g.move={playerId:p.id,steps,noDice:true};g.animationUntil=Date.now()+steps*TOKEN_STEP_MS;
+    if(old+steps>=tiles.length){p.money+=2000;log(g,`${p.name} проходит круг и получает 2,000k`)}
+    log(g,`${p.name} перемещается к свободной компании «${tiles[p.position].name}»`);g.phase='buy'}
+  }
   else if(card.amount<0){const amount=-card.amount;if(p.money>=amount){p.money-=amount;log(g,`${p.name} платит ${amount}k банку · Шанс: ${card.title}`);next(g)}else{g.debt={amount,reason:`Шанс: ${card.title}`,kind:'chance'};g.phase='pay'}}
   else {p.money+=card.amount;log(g,`${p.name} получает ${card.amount}k: ${card.title}`);next(g)}
  }

@@ -95,11 +95,11 @@ export function GameEvents({ game, player, moving, action }: { game: Game; playe
     {dismissed !== key && <Dialog title={title} icon={chance ? '?' : debt?.kind === 'diamond' ? '◇' : debt?.kind === 'loan' ? '↗' : '−'} onClose={() => setDismissed(key)}>
       <span className={styles.kicker}>{chance ? 'ШАНС' : debt?.kind === 'diamond' ? 'КЛЕТКА «БРИЛЛИАНТ»' : 'ПЛАТЁЖ В БАНК'}</span>
       <p>{chance?.description ?? (debt?.kind === 'diamond' ? 'Вы остановились на бриллианте. Оплатите налог на роскошь, чтобы продолжить игру.' : debt?.kind === 'loan' ? 'Срок кредита истёк. После возврата кредита вы продолжите свой ход.' : debt?.reason)}</p>
-      <div className={`${styles.amount} ${amount >= 0 ? styles.gain : styles.loss}`}>{amount > 0 ? '+' : amount < 0 ? '−' : ''}{money(Math.abs(amount))}</div>
+      {chance?.movement ? <div className={`${styles.amount} ${styles.gain}`}>К свободной компании →</div> : <div className={`${styles.amount} ${amount >= 0 ? styles.gain : styles.loss}`}>{amount > 0 ? '+' : amount < 0 ? '−' : ''}{money(Math.abs(amount))}</div>}
       <div className={styles.balance}>На вашем счёте <strong>{money(player.money)}</strong></div>
       {!enough && <p className={styles.error}>Не хватает {money((debt?.amount ?? 0) - player.money)}. {canGoBankrupt ? 'Стоимость доступного имущества не покрывает долг.' : 'Продайте улучшения или заложите компанию.'}{canBorrow ? ' Также можно взять кредит.' : ''}</p>}
       {failed && <p role="alert" className={styles.error}>Операция не выполнена. Проверьте баланс и дождитесь завершения движения.</p>}
-      <button className="primary big" disabled={pending || !enough} onClick={() => void submit(chance ? 'chanceContinue' : 'pay')}>{chance ? amount > 0 ? 'Получить деньги' : amount < 0 ? player.money >= -amount ? `Оплатить ${money(-amount)}` : 'Продолжить к оплате' : 'Продолжить' : `Оплатить ${money(debt?.amount ?? 0)}`}</button>
+      <button className="primary big" disabled={pending || !enough} onClick={() => void submit(chance ? 'chanceContinue' : 'pay')}>{chance ? chance.movement ? 'Переместиться' : amount > 0 ? 'Получить деньги' : amount < 0 ? player.money >= -amount ? `Оплатить ${money(-amount)}` : 'Продолжить к оплате' : 'Продолжить' : `Оплатить ${money(debt?.amount ?? 0)}`}</button>
       {canBorrow && <>
         <button className="secondary" disabled={pending} onClick={() => void submit('loanTake')}>Взять кредит · +{money(LOAN_PRINCIPAL)}</button>
         <p className={styles.note}>Вернуть {money(LOAN_TOTAL_DUE)} через {LOAN_TURNS} своих ходов. Один кредит за партию.</p>
