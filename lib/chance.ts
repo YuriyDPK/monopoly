@@ -5,6 +5,7 @@ type ChanceCard = {
   title: string;
   description: string;
   amount: number | ((game: Game, player: Player) => number);
+  reverseNextMove?: boolean;
 };
 
 const properties = (game: Game, player: Player) => Object.keys(game.owners).map(Number).filter(index => game.owners[index] === player.id);
@@ -22,6 +23,7 @@ export const CHANCE_CARDS: readonly ChanceCard[] = [
   {id:'advertising',title:'Рекламная кампания',description:'Рекламный счёт составил 600k.',amount:-600},
   {id:'repairs',title:'Плановый ремонт',description:'Заплатите 250k за обслуживание и по 150k за каждое улучшение своих компаний.',amount:(game,player)=>-(250+properties(game,player).reduce((sum,index)=>sum+(game.levels?.[index]??0),0)*150)},
   {id:'licenses',title:'Продление лицензий',description:'Заплатите 100k и по 100k за каждую свою компанию.',amount:(game,player)=>-(100+properties(game,player).length*100)},
+  {id:'reverse-direction',title:'Обратный ход',description:'Ваш следующий ход будет в обратном направлении. После него вы снова пойдёте вперёд.',amount:0,reverseNextMove:true},
 ];
 
 export function drawChance(game: Game, player: Player): ChanceResult {
@@ -33,5 +35,6 @@ export function drawChance(game: Game, player: Player): ChanceResult {
     description: card.description,
     amount: typeof card.amount === 'number' ? card.amount : card.amount(game, player),
     playerId: player.id,
+    ...(card.reverseNextMove ? {reverseNextMove: true} : {}),
   };
 }

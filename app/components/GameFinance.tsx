@@ -92,7 +92,7 @@ export function GameEvents({ game, player, moving, action }: { game: Game; playe
     {dismissed !== key && <Dialog title={title} icon={chance ? '?' : debt?.kind === 'diamond' ? '◇' : debt?.kind === 'loan' ? '↗' : '−'} onClose={() => setDismissed(key)}>
       <span className={styles.kicker}>{chance ? 'ШАНС' : debt?.kind === 'diamond' ? 'КЛЕТКА «БРИЛЛИАНТ»' : 'ПЛАТЁЖ В БАНК'}</span>
       <p>{chance?.description ?? (debt?.kind === 'diamond' ? 'Вы остановились на бриллианте. Оплатите налог на роскошь, чтобы продолжить игру.' : debt?.kind === 'loan' ? 'Пять ваших ходов завершены. После возврата кредита вы продолжите свой ход.' : debt?.reason)}</p>
-      <div className={`${styles.amount} ${amount >= 0 ? styles.gain : styles.loss}`}>{amount > 0 ? '+' : amount < 0 ? '−' : ''}{money(Math.abs(amount))}</div>
+      {chance?.reverseNextMove ? <div className={`${styles.amount} ${styles.loss}`}>← Следующий ход назад</div> : <div className={`${styles.amount} ${amount >= 0 ? styles.gain : styles.loss}`}>{amount > 0 ? '+' : amount < 0 ? '−' : ''}{money(Math.abs(amount))}</div>}
       <div className={styles.balance}>На вашем счёте <strong>{money(player.money)}</strong></div>
       {!enough && <p className={styles.error}>Не хватает {money((debt?.amount ?? 0) - player.money)}. Продайте улучшения, заложите компанию{canBorrow ? ' или возьмите кредит' : ''}.</p>}
       {failed && <p role="alert" className={styles.error}>Операция не выполнена. Проверьте баланс и дождитесь завершения движения.</p>}

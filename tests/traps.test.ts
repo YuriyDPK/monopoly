@@ -153,3 +153,14 @@ test('bots pay a revealed trap and then buy the landed company without stalling'
   assert.equal(callbacks.length,1);await callbacks.shift()!();assert.equal(game.owners[3],'bob');assert.equal(game.turn,2);
   assert.equal(callbacks.length,0);assert.equal(game.trapResult,undefined);assert.equal(game.players[0].money,15600);
 });
+
+
+test('a reverse move triggers a trap on the actual landed company',async t=>{
+  let now=10000;t.mock.method(Date,'now',()=>now);const rolls=[0,0.2];t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const game=fixture();game.players[0].position=6;game.players[0].reverseNextMove=true;
+  game.traps=[{id:'reverse-trap',ownerId:'bob',tile:3,amount:500,cost:200,placedAfter:{}}];
+  assert.equal((await act(game,'roll')).status,200);assert.equal(game.players[0].position,3);
+  assert.equal(game.move?.direction,-1);assert.equal(game.players[0].reverseNextMove,undefined);
+  assert.equal(game.debt?.kind,'trap');assert.equal(game.trapResult?.tile,3);
+  now+=10000;assert.equal((await act(game,'pay')).status,200);assert.equal(game.phase,'buy');
+});

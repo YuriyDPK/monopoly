@@ -64,13 +64,13 @@ function next(g:Game){
  g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;g.bonusRolls=undefined;player.doubles=0;
  do { g.turn=(g.turn+1)%g.players.length } while(current(g).bankrupt);beginTurn(g);
 }
-function movePlayer(g:Game,p:Player,d1:number,d2:number){
- const steps=d1+d2, old=p.position; p.position=(old+steps)%40;
+function movePlayer(g:Game,p:Player,d1:number,d2:number,direction:1|-1=1){
+ const steps=d1+d2, old=p.position; p.position=(old+direction*steps+40)%40;
  const landed=p.position, tile=tiles[landed];
- g.move={playerId:p.id,steps,jailTransfer:landed===30};
+ g.move={playerId:p.id,steps,...(direction===-1?{direction}:{}),jailTransfer:landed===30};
  g.animationUntil=Date.now()+DICE_ROLL_MS+steps*TOKEN_STEP_MS+(landed===30?1800:0);
- if(old+steps>=40){const reward=landed===0?3000:2000;p.money+=reward;log(g,landed===0?`${p.name} останавливается на старте и получает 3,000k`:`${p.name} проходит круг и получает 2,000k`)}
- log(g,`${p.name} выбрасывает ${d1}:${d2} и попадает на «${tile.name}»`);
+ if(direction===1&&old+steps>=40){const reward=landed===0?3000:2000;p.money+=reward;log(g,landed===0?`${p.name} останавливается на старте и получает 3,000k`:`${p.name} проходит круг и получает 2,000k`)}
+ log(g,`${p.name} выбрасывает ${d1}:${d2}${direction===-1?' и движется назад':''} и попадает на «${tile.name}»`);
  if(landed===30){p.position=10;p.jailed=true;p.jailAttempts=0;log(g,`${p.name} отправляется в тюрьму`);next(g);return}
  const trap=g.traps?.find(item=>item.tile===landed&&!g.players.find(owner=>owner.id===item.ownerId)?.bankrupt&&fullRoundsSince(g,item.placedAfter)<TRAP_LIFETIME_ROUNDS);
  if(trap){
@@ -223,12 +223,13 @@ export async function POST(req:Request){
  }
  else if(b.action==='roll'||b.action==='jailRoll') {
   const inJail=b.action==='jailRoll';if(current(g).id!==p.id||g.phase!==(inJail?'jail':'roll')||Date.now()<(g.animationUntil||0))return fail('Дождитесь своего хода и завершения движения');
+  const direction:1|-1=p.reverseNextMove?-1:1;p.reverseNextMove=undefined;
   const d1=1+Math.floor(Math.random()*6),d2=1+Math.floor(Math.random()*6);g.dice=[d1,d2];g.rollSeq=(g.rollSeq||0)+1;g.jackpotResult=undefined;
-  if(inJail&&d1!==d2){p.jailAttempts=(p.jailAttempts||0)+1;p.doubles=0;g.extraTurn=undefined;g.move=undefined;g.animationUntil=Date.now()+DICE_ROLL_MS;log(g,`${p.name} выбрасывает ${d1}:${d2} в тюрьме — дубль не выпал`);if(p.jailAttempts>=3){g.debt={amount:500,reason:'Обязательный выход из тюрьмы',afterPayment:'releaseEnd'};g.phase='pay'}else next(g)}
+  if(inJail&&d1!==d2){p.jailAttempts=(p.jailAttempts||0)+1;p.doubles=0;g.extraTurn=undefined;g.move=undefined;g.animationUntil=Date.now()+DICE_ROLL_MS;log(g,`${p.name} выбрасывает ${d1}:${d2} в тюрьме — дубль не выпал`);if(p.jailAttempts>=3){g.debt={amount:500,reason:'Обязательный выход из тюрьмы',afterPayment:'releaseEnd',...(direction===-1?{moveDirection:direction}:{})};g.phase='pay'}else next(g)}
   else {
    if(inJail){p.jailed=false;p.jailAttempts=0;log(g,`${p.name} выбрасывает дубль и выходит из тюрьмы`)}
    if(d1===d2){p.doubles=(p.doubles||0)+1;g.extraTurn=p.id}else{p.doubles=0;g.extraTurn=undefined}
-   if((p.doubles||0)>3){const steps=(10-p.position+40)%40;p.position=10;p.jailed=true;p.jailAttempts=0;p.doubles=0;g.extraTurn=undefined;g.move={playerId:p.id,steps,stepMs:80};g.animationUntil=Date.now()+DICE_ROLL_MS+steps*80;log(g,`${p.name} выбрасывает ${d1}:${d2}: четвёртый дубль подряд — в тюрьму за мошенничество`);next(g)}else movePlayer(g,p,d1,d2)
+   if((p.doubles||0)>3){const steps=(10-p.position+40)%40;p.position=10;p.jailed=true;p.jailAttempts=0;p.doubles=0;g.extraTurn=undefined;g.move={playerId:p.id,steps,stepMs:80};g.animationUntil=Date.now()+DICE_ROLL_MS+steps*80;log(g,`${p.name} выбрасывает ${d1}:${d2}: четвёртый дубль подряд — в тюрьму за мошенничество`);next(g)}else movePlayer(g,p,d1,d2,direction)
   }
  }
  else if(b.action==='jailPay'){if(current(g).id!==p.id||g.phase!=='jail'||!p.jailed)return fail('Выход из тюрьмы недоступен');g.debt={amount:500,reason:'Выход из тюрьмы',afterPayment:'releaseRoll'};g.phase='pay'}
@@ -237,6 +238,7 @@ export async function POST(req:Request){
   if(current(g).id!==p.id||g.phase!=='chanceResult'||(card&&card.playerId!==p.id)||Date.now()<(g.animationUntil||0))return fail('Подтверждение недоступно');
   g.chanceResult=undefined;
   if(!card){log(g,`${p.name} подтверждает уже полученную награду «Шанса»`);next(g)}
+  else if(card.reverseNextMove){p.reverseNextMove=true;log(g,`${p.name}: следующий ход будет в обратном направлении`);next(g)}
   else if(card.amount<0){g.debt={amount:-card.amount,reason:`Шанс: ${card.title}`,kind:'chance'};g.phase='pay'}
   else {p.money+=card.amount;log(g,`${p.name} получает ${card.amount}k: ${card.title}`);next(g)}
  }
@@ -288,7 +290,7 @@ export async function POST(req:Request){
   else if(debt.kind==='loan'){p.loan=undefined;g.debt=undefined;g.phase=p.jailed?'jail':'roll'}
   else if(debt.afterPayment==='releaseRoll'||debt.afterPayment==='releaseEnd'){
    p.jailed=false;p.jailAttempts=0;log(g,`${p.name} выходит из тюрьмы`);g.debt=undefined;
-   if(debt.afterPayment==='releaseRoll')g.phase='roll';else movePlayer(g,p,g.dice[0],g.dice[1]);
+   if(debt.afterPayment==='releaseRoll')g.phase='roll';else movePlayer(g,p,g.dice[0],g.dice[1],debt.moveDirection);
   }else next(g);
  }
  else if(b.action==='upgrade'){const i=Number(b.tile),tile=tiles[i],level=g.levels[i]||0,cost=tile?.price?propertyUpgradeCost(i,level):0;const groupKey=tile?.group||'';if(!g.started||g.phase==='finished'||p.bankrupt||g.owners[i]!==p.id||!tile?.price||isDiceRent(i)||isCarCompany(i)||g.mortgaged.includes(i)||level>=MAX_PROPERTY_LEVEL)return fail('Улучшение недоступно');if(!ownsFullGroup(g.owners,i))return fail('Для улучшения выкупите всю улицу');if(groupHasMortgage(g.mortgaged,i))return fail('Сначала выкупите из залога все компании этой улицы');if(g.lastUpgradeTurn[groupKey]===g.turnSerial)return fail('Эту улицу уже улучшали в текущем ходу');if(g.phase==='pay'&&current(g).id===p.id)return fail('Сначала погасите задолженность');if(p.money<cost||(g.auction?.bidder===p.id&&p.money-cost<g.auction.bid))return fail('Недостаточно свободных средств для улучшения');p.money-=cost;g.levels[i]=level+1;g.lastUpgradeTurn[groupKey]=g.turnSerial;log(g,`${p.name} улучшает ${tile.name} до уровня ${level+2}`)}

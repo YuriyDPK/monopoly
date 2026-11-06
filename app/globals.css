@@ -223,3 +223,5 @@
 .activity-footer{flex:none;margin-top:14px;padding-top:12px;font-size:8px;color:#8c958b}
 @media(max-width:1200px){.workspace{grid-template-columns:200px minmax(450px,1fr)}.activity{display:flex;grid-column:1/-1;position:static;height:380px;min-height:0;border-left:0;border-top:1px solid #39393f;padding:20px 24px}.activity-entries{justify-content:flex-start}.activity-heading h2{margin-bottom:10px}.activity-footer{display:none}.activity-empty{padding:20px}}
 @media(max-width:740px){.activity{height:390px;padding:18px 15px}.feed-body p{font-size:13px}.activity-heading h2{font-size:18px}.activity-entries{gap:7px}}
+
+.player-reverse{font-size:10px;color:#ffca8b;margin-top:4px}.reverse-turn-note{color:#ffca8b!important;font-size:10px!important;margin:8px 0!important}
