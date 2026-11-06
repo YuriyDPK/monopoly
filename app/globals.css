@@ -241,3 +241,8 @@
 .brand-icon.brand-full-color{background-color:transparent;background-repeat:no-repeat;background-position:center;background-size:contain}
 .board-replacement.board-brand-tesla .brand-icon{width:100%;height:34%}
 .brand-icon.brand-cdprojekt.brand-full-color{background-size:100% auto}
+/* Turn these marks to match the orientation of the left edge. */
+.board-brand-side-3.board-brand-apple .brand-icon,
+.board-brand-side-3.board-brand-porsche .brand-icon,
+.board-brand-side-3.board-brand-xiaomi .brand-icon,
+.board-brand-side-3.board-brand-nvidia .brand-icon{transform:rotate(-90deg)}
