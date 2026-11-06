@@ -1,0 +1,30 @@
+.panel { position: absolute; inset: clamp(8px, 3cqw, 22px); z-index: 1; display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: clamp(4px, 1.6cqh, 12px); text-align: center; overflow: auto; scrollbar-width: thin; }
+.panel h2 { font-size: clamp(18px, 6.5cqw, 34px); line-height: 1.1; margin: 0; letter-spacing: -.03em; }
+.note { margin: 0; color: #a7b8aa; font-size: clamp(9px, 2.6cqw, 12px); line-height: 1.35; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; font-size: clamp(10px, 3cqw, 14px); }
+.field select, .stake input { min-width: 0; height: clamp(27px, 8cqh, 39px); padding: 3px 7px; border: 1px solid #606066; border-radius: 0; background: #343438; color: #fff; font: inherit; }
+.field select { width: 65%; }
+.stake { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: clamp(10px, 3cqw, 14px); text-align: left; }
+.stake input { width: 38%; text-align: right; }
+.panel input:focus-visible, .panel select:focus-visible, .panel button:focus-visible { outline: 2px solid #c9ef6c; outline-offset: 2px; }
+.range input { display: block; width: 100%; height: clamp(16px, 5cqh, 24px); margin: 0; accent-color: #c9ef6c; }
+.range div { display: flex; justify-content: space-between; font-size: clamp(8px, 2.5cqw, 11px); color: #a7b8aa; }
+.actions { display: flex; gap: clamp(4px, 1.6cqw, 10px); }
+.actions button { flex: 1; min-width: 0; }
+.panel button { font-size: clamp(9px, 2.8cqw, 14px); padding: clamp(6px, 2.5cqh, 12px) clamp(4px, 2cqw, 12px); }
+.bank { margin: 0; font-size: clamp(12px, 3.7cqw, 20px); }
+.bank strong { color: #c9ef6c; }
+.bank span { display: block; margin-top: 3px; font-size: .7em; color: #a7b8aa; }
+.players { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(5px, 2cqw, 16px); }
+.player { min-width: 0; padding: clamp(5px, 2cqh, 14px) 3px; border: 1px solid #505056; background: #ffffff04; }
+.player > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(11px, 3.5cqw, 18px); }
+.winner { border-color: #c9ef6c; background: #c9ef6c0c; }
+.dice { display: flex; justify-content: center; gap: clamp(2px, 1cqw, 8px); padding: clamp(3px, 1cqh, 8px) 0; }
+.dice span { color: #f4f3e9; font: clamp(32px, 13cqw, 70px)/1 Arial, sans-serif; }
+.total { font-size: clamp(14px, 5cqw, 26px); }
+.result { color: #c9ef6c; font-size: clamp(12px, 4cqw, 22px); font-weight: 700; margin: 0; }
+.continue { width: 100%; }
+.rolling span { animation: toss 330ms ease-in-out infinite; }
+.rolling span:nth-child(2) { animation-direction: reverse; }
+@keyframes toss { 0%, 100% { transform: rotate(-12deg) translateY(0); } 50% { transform: rotate(12deg) translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .rolling span { animation: none; } }

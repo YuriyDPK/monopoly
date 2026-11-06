@@ -49,7 +49,7 @@ export function ActivityLog({ game, sendMessage }: { game: Game | null; sendMess
         setAwayFromBottom(!atBottom);
       }}>
         {entries.length ? <div className="activity-entries">{entries.map(({ id, text: line }, index) => {
-          const speaker = players.find(player => line.startsWith(`${player.name}: `) && !/^(джекпот —|«Шанс»|наступил срок возврата кредита)/.test(line.slice(player.name.length + 2)));
+          const speaker = players.find(player => line.startsWith(`${player.name}: `) && !/^(джекпот —|рулетка —|«Шанс»|наступил срок возврата кредита)/.test(line.slice(player.name.length + 2)));
           const kind = eventKind(line);
           return <div className={`feed-event ${speaker ? 'feed-chat' : `feed-${kind.tone}`} ${index === entries.length - 1 ? 'feed-latest' : ''}`} key={id}>
             <span className="feed-icon" style={speaker ? { color: speaker.color } : undefined}>{speaker ? speaker.name.slice(0, 1).toUpperCase() : kind.icon}</span>

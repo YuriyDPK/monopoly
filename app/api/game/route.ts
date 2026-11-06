@@ -1,11 +1,35 @@
 import { colors, DICE_ROLL_MS, TOKEN_STEP_MS, MAX_PROPERTY_LEVEL, MORTGAGE_TURNS, JACKPOT_BET, JACKPOT_PAYOUTS, DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, isDiceRent, diceRentFactor, isCarCompany, carRent, propertyRent, propertyUpgradeCost, ownsFullGroup, effectivePropertyLevel, groupHasMortgage, type Game, type Player, tiles, type Trade } from '@/lib/game';
 import { drawChance } from '@/lib/chance';
+import { drawRoulette, ROULETTE_OUTCOMES, ROULETTE_SPIN_MS } from '@/lib/roulette';
+import { DUEL_MIN_BET, DUEL_BET_STEP, DUEL_ROLL_MS, maxDuelBet } from '@/lib/duel';
+import { TRAP_AMOUNTS, TRAP_LIFETIME_ROUNDS, TRAP_COOLDOWN_ROUNDS, trapCost, fullRoundsSince } from '@/lib/traps';
 
-const globalStore = globalThis as typeof globalThis & { monopolyRooms?: Map<string, Game> };
+const globalStore = globalThis as typeof globalThis & { monopolyRooms?: Map<string, Game>; monopolyPrivateKeys?: Map<string, Map<string, string>> };
 const rooms = globalStore.monopolyRooms ??= new Map<string, Game>();
+const privateKeys = globalStore.monopolyPrivateKeys ??= new Map<string, Map<string, string>>();
 const fail=(message:string,status=400)=>Response.json({error:message},{status});
 const log=(g:Game,s:string)=>{g.log=[s,...g.log].slice(0,40)};
 const current=(g:Game)=>g.players[g.turn];
+const playerKey=(req:Request)=>{const key=req.headers.get('X-Player-Key')||'';return key.length>=32&&key.length<=128?key:''};
+function rememberKey(g:Game,id:string,key:string){if(!key)return;let keys=privateKeys.get(g.code);if(!keys){keys=new Map();privateKeys.set(g.code,keys)}if(!keys.has(id))keys.set(id,key)}
+function gameView(g:Game,viewerId:string,key:string){
+ const {traps=[],trapPlacements,completedTurns,...visible}=g;
+ const privateView=!!key&&privateKeys.get(g.code)?.get(viewerId)===key;
+ const mine=privateView?traps.find(trap=>trap.ownerId===viewerId):undefined;
+ const clock={players:g.players,completedTurns};
+ return {...visible,
+  players:g.players.map(player=>({...player,money:player.money+(player.bankrupt||privateView&&player.id===viewerId?0:traps.filter(trap=>trap.ownerId===player.id).reduce((sum,trap)=>sum+trap.cost,0))})),
+  ...(mine?{myTrap:{tile:mine.tile,amount:mine.amount,roundsLeft:Math.max(0,TRAP_LIFETIME_ROUNDS-fullRoundsSince(clock,mine.placedAfter))}}:{}),
+  trapCooldown:trapPlacements?.[viewerId]?Math.max(0,TRAP_COOLDOWN_ROUNDS-fullRoundsSince(clock,trapPlacements[viewerId])):0,
+ };
+}
+function advanceTraps(g:Game){
+ g.traps=(g.traps||[]).filter(trap=>{
+  const owner=g.players.find(player=>player.id===trap.ownerId);
+  if(!owner||owner.bankrupt||fullRoundsSince(g,trap.placedAfter)>=TRAP_LIFETIME_ROUNDS){log(g,`Ловушка игрока ${owner?.name||'Игрок'} исчезает`);return false}
+  return true;
+ });
+}
 function advanceMortgages(g:Game, ownerId:string){
  g.mortgageTurns ??= {};
  for(const i of [...g.mortgaged]){
@@ -22,6 +46,8 @@ function beginTurn(g: Game) {
  g.debt = undefined;
  g.auction = undefined;
  g.chanceResult = undefined;
+ g.rouletteResult = undefined;
+ g.trapResult = undefined;
  g.phase = player.jailed ? 'jail' : 'roll';
  if (player.loan && player.loan.turnsLeft <= 0) {
   g.debt = {amount: player.loan.totalDue, reason:'Погашение кредита', kind:'loan', afterPayment:'resumeTurn'};
@@ -31,9 +57,11 @@ function beginTurn(g: Game) {
 }
 function next(g:Game){
  const player=current(g);advanceMortgages(g,player.id);if(player.loan)player.loan.turnsLeft=Math.max(0,player.loan.turnsLeft-1);const alive=g.players.filter(p=>!p.bankrupt);
- if(alive.length<=1){g.phase='finished';g.winner=alive[0]?.id;g.extraTurn=undefined;g.debt=undefined;g.auction=undefined;g.chanceResult=undefined;return}
- if(g.extraTurn===player.id&&!player.bankrupt&&!player.jailed){g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;beginTurn(g);log(g,`${player.name} получает ещё один ход за дубль`);return}
- g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;player.doubles=0;
+ if(alive.length<=1){g.phase='finished';g.winner=alive[0]?.id;g.extraTurn=undefined;g.bonusRolls=undefined;g.debt=undefined;g.auction=undefined;g.chanceResult=undefined;g.rouletteResult=undefined;g.traps=[];g.trapResult=undefined;return}
+ const doubleTurn=g.extraTurn===player.id;
+ if((doubleTurn||(g.bonusRolls||0)>0)&&!player.bankrupt&&!player.jailed){if(!doubleTurn)g.bonusRolls=(g.bonusRolls||0)-1;g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;beginTurn(g);log(g,`${player.name} получает ещё один ход ${doubleTurn?'за дубль':'от рулетки'}`);return}
+ g.completedTurns ??= {};g.completedTurns[player.id]=(g.completedTurns[player.id]||0)+1;advanceTraps(g);
+ g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;g.bonusRolls=undefined;player.doubles=0;
  do { g.turn=(g.turn+1)%g.players.length } while(current(g).bankrupt);beginTurn(g);
 }
 function movePlayer(g:Game,p:Player,d1:number,d2:number){
@@ -44,13 +72,24 @@ function movePlayer(g:Game,p:Player,d1:number,d2:number){
  if(old+steps>=40){const reward=landed===0?3000:2000;p.money+=reward;log(g,landed===0?`${p.name} останавливается на старте и получает 3,000k`:`${p.name} проходит круг и получает 2,000k`)}
  log(g,`${p.name} выбрасывает ${d1}:${d2} и попадает на «${tile.name}»`);
  if(landed===30){p.position=10;p.jailed=true;p.jailAttempts=0;log(g,`${p.name} отправляется в тюрьму`);next(g);return}
+ const trap=g.traps?.find(item=>item.tile===landed&&!g.players.find(owner=>owner.id===item.ownerId)?.bankrupt&&fullRoundsSince(g,item.placedAfter)<TRAP_LIFETIME_ROUNDS);
+ if(trap){
+  g.traps=g.traps!.filter(item=>item.id!==trap.id);
+  g.trapResult={ownerId:trap.ownerId,playerId:p.id,tile:landed,amount:trap.amount};
+  g.debt={amount:trap.amount,to:trap.ownerId===p.id?undefined:trap.ownerId,reason:`Ловушка на «${tile.name}»`,kind:'trap'};g.phase='pay';
+  log(g,`${p.name} попадает на ловушку игрока ${g.players.find(owner=>owner.id===trap.ownerId)?.name}: ${trap.amount}k на «${tile.name}»`);return;
+ }
+ resolveTile(g,p,steps);
+}
+function resolveTile(g:Game,p:Player,steps:number){
+ const landed=p.position,tile=tiles[landed];
  const owner=g.owners[landed];
  if(tile.price&&!owner)g.phase='buy';
  else if(tile.price&&owner!==p.id&&!g.mortgaged.includes(landed)){
   const receiver=g.players.find(x=>x.id===owner);
   if(receiver&&!receiver.bankrupt){const amount=isDiceRent(landed)?diceRentFactor(g.owners,landed)*steps:isCarCompany(landed)?carRent(g.owners,landed):propertyRent(landed,effectivePropertyLevel(g.owners,g.levels,landed));g.debt={amount,to:owner,reason:`Аренда «${tile.name}»`};g.phase='pay'}else next(g);
  }else if(tile.kind==='tax'){g.debt={amount:2000,reason:'Клетка «Деньги»'};g.phase='pay'}
- else if(tile.kind==='jackpot'){g.phase='jackpot'}
+ else if(tile.kind==='jackpot'){g.phase=Math.random()<0.5?'jackpot':'roulette'}
  else if(tile.kind==='chance'){g.chanceResult=drawChance(g,p);g.lastChanceId=g.chanceResult.id;g.phase='chanceResult';log(g,`${p.name}: «Шанс» — ${g.chanceResult.title}`)}
  else if(tile.kind==='diamond'){g.debt={amount:DIAMOND_FEE,reason:'Налог на роскошь · Бриллиант',kind:'diamond'};g.phase='pay'}else next(g);
 }
@@ -70,8 +109,9 @@ const botTimers = new Map<string, ReturnType<typeof setTimeout>>();
 function scheduleBot(g: Game, delay = 850) {
  if (!g.started || g.phase === 'finished' || botTimers.has(g.code)) return;
  const tradeBot = g.trade && g.players.find(p => p.id === g.trade!.to && p.bot && !p.bankrupt);
+ const duelBot = g.phase === 'duelInvite' && g.duel && g.players.find(p => p.id === g.duel!.to && p.bot && !p.bankrupt);
  const auctionBot = g.phase === 'auction' && g.auction && g.players.find(p => p.bot && !p.bankrupt && p.id !== g.auction!.bidder && !g.auction!.passed.includes(p.id));
- if (!tradeBot && !auctionBot && !(g.phase !== 'auction' && current(g)?.bot)) return;
+ if (!tradeBot && !duelBot && !auctionBot && !(g.phase !== 'auction' && current(g)?.bot)) return;
  const wait = Math.max(delay, (g.animationUntil || 0) - Date.now() + 100);
  const timer = setTimeout(async () => {
   botTimers.delete(g.code);
@@ -81,7 +121,10 @@ function scheduleBot(g: Game, delay = 850) {
   let action = '';
   let extra: Record<string, unknown> = {};
   const trade = room.trade;
-  if (trade && (bot = room.players.find(p => p.id === trade.to && p.bot && !p.bankrupt))) {
+  if (room.phase === 'duelInvite' && room.duel && (bot = room.players.find(p => p.id === room.duel!.to && p.bot && !p.bankrupt))) {
+   const challenger = room.players.find(p => p.id === room.duel!.from);
+   action = 'duelRespond'; extra = {duelId:room.duel.id, accept:!!challenger && !challenger.bankrupt && maxDuelBet(challenger.money,bot.money) >= room.duel.bet};
+  } else if (trade && (bot = room.players.find(p => p.id === trade.to && p.bot && !p.bankrupt))) {
    const value = (indices: number[]) => indices.reduce((sum, i) => sum + (tiles[i]?.price || 0) * (room.mortgaged.includes(i) ? 0.5 : 1), 0);
    action = 'tradeResponse'; extra = { accept: trade.giveCash + value(trade.give) >= trade.takeCash + value(trade.take) && trade.takeCash <= bot.money };
   } else if (room.phase === 'auction' && room.auction) {
@@ -100,6 +143,9 @@ function scheduleBot(g: Game, delay = 850) {
    else if (room.phase === 'jail') action = 'jailRoll';
    else if (room.phase === 'jackpot') { action = bot.money >= JACKPOT_BET ? 'jackpotBet' : 'jackpotSkip'; extra = {numbers:[2,5]}; }
    else if (room.phase === 'jackpotResult') action = 'jackpotContinue';
+   else if (room.phase === 'roulette') action = bot.money >= JACKPOT_BET ? 'rouletteSpin' : 'rouletteSkip';
+   else if (room.phase === 'rouletteResult') action = 'rouletteContinue';
+   else if (room.phase === 'duelResult' && room.duel) { action = 'duelContinue'; extra = {duelId:room.duel.id}; }
    else if (room.phase === 'chanceResult') action = 'chanceContinue';
    else if (room.phase === 'buy') action = bot.money >= (tiles[bot.position].price || 0) ? 'buy' : 'auction';
    else if (room.phase === 'pay' && room.debt) {
@@ -115,20 +161,66 @@ function scheduleBot(g: Game, delay = 850) {
  }, wait);
  botTimers.set(g.code, timer);
 }
-export async function GET(req:Request){const code=new URL(req.url).searchParams.get('room')?.toUpperCase()||'';const g=rooms.get(code);return g?Response.json(g,{headers:{'Cache-Control':'no-store'}}):fail('Комната не найдена',404)}
+export async function GET(req:Request){const params=new URL(req.url).searchParams,code=params.get('room')?.toUpperCase()||'';const g=rooms.get(code);return g?Response.json(gameView(g,params.get('id')||'',playerKey(req)),{headers:{'Cache-Control':'no-store'}}):fail('Комната не найдена',404)}
 export async function POST(req:Request){
  try{
- const b=await req.json(); let g:Game|undefined=rooms.get(String(b.room||'').toUpperCase());
- if(b.action==='create'){const code=Math.random().toString(36).slice(2,8).toUpperCase();const p:Player={id:b.id,name:String(b.name||'Игрок').trim().slice(0,20)||'Игрок',color:colors[0],money:15000,position:0};g={code,players:[p],host:p.id,started:false,turn:0,phase:'lobby',owners:{},levels:{},turnSerial:1,lastUpgradeTurn:{},mortgaged:[],mortgageTurns:{},dice:[],log:[`${p.name} создаёт комнату`],revision:0};rooms.set(code,g);return Response.json(g)}
+ const b=await req.json(),key=playerKey(req); let g:Game|undefined=rooms.get(String(b.room||'').toUpperCase());
+ if(b.action==='create'){const code=Math.random().toString(36).slice(2,8).toUpperCase();const p:Player={id:b.id,name:String(b.name||'Игрок').trim().slice(0,20)||'Игрок',color:colors[0],money:15000,position:0};g={code,players:[p],host:p.id,started:false,turn:0,phase:'lobby',owners:{},levels:{},turnSerial:1,lastUpgradeTurn:{},mortgaged:[],mortgageTurns:{},dice:[],log:[`${p.name} создаёт комнату`],revision:0};rooms.set(code,g);rememberKey(g,p.id,key);return Response.json(gameView(g,p.id,key))}
  if(!g)return fail('Комната не найдена');
  g.levels ??= {};g.turnSerial ??= 1;g.lastUpgradeTurn ??= {};g.mortgageTurns ??= {};for(const i of g.mortgaged)g.mortgageTurns[i] ??= MORTGAGE_TURNS;
  let p=g.players.find(x=>x.id===b.id);
- if(b.action==='join'){if(!p){if(g.started)return fail('Игра уже началась');if(g.players.length>=6)return fail('Комната заполнена');p={id:b.id,name:String(b.name||'Игрок').trim().slice(0,20)||'Игрок',color:colors[g.players.length],money:15000,position:0};g.players.push(p);log(g,`${p.name} присоединяется к игре`)}g.revision++;return Response.json(g)}
+ if(b.action==='join'){if(!p){if(g.started)return fail('Игра уже началась');if(g.players.length>=6)return fail('Комната заполнена');p={id:b.id,name:String(b.name||'Игрок').trim().slice(0,20)||'Игрок',color:colors[g.players.length],money:15000,position:0};g.players.push(p);log(g,`${p.name} присоединяется к игре`)}rememberKey(g,p.id,key);g.revision++;return Response.json(gameView(g,p.id,key))}
  if(!p)return fail('Сначала присоединитесь к комнате',403);
- if(b.action==='leave'){if(g.started&&g.phase!=='finished')return fail('Дождитесь окончания игры');if(!g.started){g.players=g.players.filter(player=>player.id!==p!.id);const nextHost=g.players.find(player=>!player.bot);if(!nextHost){rooms.delete(g.code);return Response.json({ok:true})}if(g.host===p.id)g.host=nextHost.id;log(g,`${p.name} покидает комнату`);g.revision++}return Response.json({ok:true})}
+ if((g.phase==='duelInvite'||g.phase==='duelResult')&&!['duelRespond','duelCancel','duelContinue','chat'].includes(b.action))return fail('Сначала завершите дуэль');
+ if(b.action==='leave'){if(g.started&&g.phase!=='finished')return fail('Дождитесь окончания игры');if(!g.started){g.players=g.players.filter(player=>player.id!==p!.id);const nextHost=g.players.find(player=>!player.bot);if(!nextHost){rooms.delete(g.code);privateKeys.delete(g.code);return Response.json({ok:true})}if(g.host===p.id)g.host=nextHost.id;log(g,`${p.name} покидает комнату`);g.revision++}return Response.json({ok:true})}
  if(b.action==='addBot'){if(p.id!==g.host||g.started||g.players.length>=6)return fail('Нельзя добавить бота');const used=new Set(g.players.map(x=>x.name));const name=['Бот Алекс','Бот Макс','Бот Сэм','Бот Ник','Бот Ким'].find(x=>!used.has(x)) || `Бот ${g.players.length}`;const bot:Player={id:`bot-${crypto.randomUUID()}`,name,color:colors[g.players.length],money:15000,position:0,bot:true};g.players.push(bot);log(g,`${name} присоединяется к игре`)}
  else if(b.action==='removeBot'){const index=g.players.findIndex(x=>x.id===b.botId&&x.bot);if(p.id!==g.host||g.started||index<0)return fail('Нельзя удалить бота');const [bot]=g.players.splice(index,1);g.players.forEach((player,i)=>player.color=colors[i]);log(g,`${bot.name} покидает комнату`)}
  else if(b.action==='start'){if(p.id!==g.host||g.started||g.players.length<2)return fail('Для начала нужны хотя бы два игрока');g.started=true;g.phase='roll';log(g,'Игра началась! Вперёд к новым победам')}
+ else if(b.action==='trapPlace'){
+  const tile=b.tile,amount=b.amount,cost=trapCost(amount),last=g.trapPlacements?.[p.id];
+  if(!g.started||current(g).id!==p.id||p.bankrupt||p.jailed||g.phase!=='roll'||g.duel||g.debt||g.auction||g.trade||Date.now()<(g.animationUntil||0))return fail('Ловушку можно поставить в свой ход перед броском, после завершения сделок');
+  if(!Number.isInteger(tile)||!tiles[tile]?.price||g.owners[tile]||!TRAP_AMOUNTS.some(value=>value===amount)||p.money<cost)return fail('Выберите свободную компанию, сумму ловушки и проверьте баланс');
+  if(g.traps?.some(trap=>trap.ownerId===p.id)||last&&fullRoundsSince(g,last)<TRAP_COOLDOWN_ROUNDS)return fail('Следующая ловушка доступна через 10 полных кругов после предыдущей установки');
+  if(!key||privateKeys.get(g.code)?.has(p.id)&&privateKeys.get(g.code)?.get(p.id)!==key)return fail('Для установки используйте устройство, на котором вы вошли в игру');
+  rememberKey(g,p.id,key);
+  const placedAfter=Object.fromEntries(g.players.filter(player=>!player.bankrupt).map(player=>[player.id,g!.completedTurns?.[player.id]||0]));
+  g.traps ??= [];g.traps.push({id:crypto.randomUUID(),ownerId:p.id,tile,amount,cost,placedAfter});g.trapPlacements ??= {};g.trapPlacements[p.id]=placedAfter;
+  p.money-=cost;log(g,`${p.name} устанавливает ловушку`);
+ }
+ else if(b.action==='duelChallenge'){
+  const target=g.players.find(player=>player.id===b.to),bet=b.bet;
+  if(!g.started||current(g).id!==p.id||p.bankrupt||p.jailed||g.phase!=='roll'||g.duel||g.debt||g.auction||g.trade||g.lastDuelTurn===g.turnSerial||Date.now()<(g.animationUntil||0))return fail('Дуэль доступна один раз за ход перед обычным броском, после завершения сделок');
+  if(!target||target.id===p.id||target.bankrupt||!Number.isSafeInteger(bet)||!Number.isSafeInteger(bet*2)||bet<DUEL_MIN_BET||bet%DUEL_BET_STEP!==0||bet>maxDuelBet(p.money,target.money))return fail('Выберите соперника и ставку от 100k с шагом 100k в пределах денег обоих игроков');
+  g.duel={id:crypto.randomUUID(),from:p.id,to:target.id,bet};g.lastDuelTurn=g.turnSerial;g.phase='duelInvite';
+  log(g,`${p.name} вызывает игрока ${target.name} на дуэль: ставка ${bet}k с каждого`);
+ }
+ else if(b.action==='duelRespond'){
+  const duel=g.duel;
+  if(g.phase!=='duelInvite'||!duel||duel.id!==b.duelId||duel.to!==p.id||typeof b.accept!=='boolean')return fail('Вызов на дуэль недоступен');
+  const challenger=g.players.find(player=>player.id===duel.from)!;
+  if(b.accept){
+   if(challenger.bankrupt||p.bankrupt||duel.bet>maxDuelBet(challenger.money,p.money))return fail('Недостаточно денег для принятия дуэли');
+   challenger.money-=duel.bet;p.money-=duel.bet;
+   const die=()=>1+Math.floor(Math.random()*6);
+   duel.dice=[[die(),die()],[die(),die()]];
+   const first=duel.dice[0][0]+duel.dice[0][1],second=duel.dice[1][0]+duel.dice[1][1];
+   duel.winner=first>second?duel.from:second>first?duel.to:undefined;
+   g.phase='duelResult';g.animationUntil=Date.now()+DUEL_ROLL_MS;
+   log(g,`${p.name} принимает дуэль: банк ${duel.bet*2}k`);
+  }else{g.duel=undefined;g.phase='roll';log(g,`${p.name} отклоняет вызов на дуэль`)}
+ }
+ else if(b.action==='duelCancel'){
+  const duel=g.duel;
+  if(g.phase!=='duelInvite'||!duel||duel.id!==b.duelId||duel.from!==p.id)return fail('Отмена дуэли недоступна');
+  g.duel=undefined;g.phase='roll';log(g,`${p.name} отменяет вызов на дуэль`);
+ }
+ else if(b.action==='duelContinue'){
+  const duel=g.duel;
+  if(g.phase!=='duelResult'||!duel?.dice||duel.id!==b.duelId||duel.from!==p.id||current(g).id!==p.id||Date.now()<(g.animationUntil||0))return fail('Дождитесь результата дуэли');
+  if(duel.winner){const winner=g.players.find(player=>player.id===duel.winner)!;winner.money+=duel.bet*2;log(g,`${winner.name} выигрывает дуэль ${duel.dice[0][0]+duel.dice[0][1]}:${duel.dice[1][0]+duel.dice[1][1]} и получает банк ${duel.bet*2}k`)}
+  else{for(const player of g.players)if(player.id===duel.from||player.id===duel.to)player.money+=duel.bet;log(g,`Дуэль: ничья, ставки по ${duel.bet}k возвращены`)}
+  g.duel=undefined;g.phase='roll';g.animationUntil=0;
+ }
  else if(b.action==='roll'||b.action==='jailRoll') {
   const inJail=b.action==='jailRoll';if(current(g).id!==p.id||g.phase!==(inJail?'jail':'roll')||Date.now()<(g.animationUntil||0))return fail('Дождитесь своего хода и завершения движения');
   const d1=1+Math.floor(Math.random()*6),d2=1+Math.floor(Math.random()*6);g.dice=[d1,d2];g.rollSeq=(g.rollSeq||0)+1;g.jackpotResult=undefined;
@@ -162,6 +254,27 @@ export async function POST(req:Request){
  else if(b.action==='jackpotSkip'){if(current(g).id!==p.id||g.phase!=='jackpot')return fail('Джекпот недоступен');log(g,`${p.name} пропускает джекпот`);next(g)}
  else if(b.action==='jackpotBet'){const numbers=b.numbers;if(current(g).id!==p.id||g.phase!=='jackpot'||!Array.isArray(numbers)||numbers.length<1||numbers.length>3||new Set(numbers).size!==numbers.length||numbers.some((n:unknown)=>!Number.isInteger(n)||Number(n)<1||Number(n)>6)||p.money<JACKPOT_BET)return fail('Выберите от одного до трёх чисел и проверьте баланс');p.money-=JACKPOT_BET;const result=1+Math.floor(Math.random()*6),payout=numbers.includes(result)?JACKPOT_PAYOUTS[numbers.length]:0;p.money+=payout;g.jackpotResult={playerId:p.id,choice:numbers,result,payout};g.phase='jackpotResult';g.animationUntil=Date.now()+1100}
  else if(b.action==='jackpotContinue'){if(current(g).id!==p.id||g.phase!=='jackpotResult'||Date.now()<(g.animationUntil||0)||!g.jackpotResult)return fail('Дождитесь результата джекпота');const result=g.jackpotResult;log(g,`${p.name}: джекпот — выпало ${result.result}, ${result.payout?`выплата ${result.payout}k`:'ставка проиграна'}`);next(g)}
+ else if(b.action==='rouletteSkip'){
+  if(current(g).id!==p.id||g.phase!=='roulette'||Date.now()<(g.animationUntil||0))return fail('Рулетка недоступна');
+  log(g,`${p.name} пропускает рулетку`);next(g);
+ }
+ else if(b.action==='rouletteSpin'){
+  if(current(g).id!==p.id||g.phase!=='roulette'||Date.now()<(g.animationUntil||0)||p.money<JACKPOT_BET)return fail('Дождитесь своего хода и проверьте баланс для ставки 1 000k');
+  const outcome=drawRoulette();p.money+=outcome.payout-JACKPOT_BET;
+  g.rouletteResult={playerId:p.id,outcome:outcome.id,stopPosition:0.1+Math.random()*0.8};g.phase='rouletteResult';g.animationUntil=Date.now()+ROULETTE_SPIN_MS;
+ }
+ else if(b.action==='rouletteContinue'){
+  const result=g.rouletteResult,outcome=ROULETTE_OUTCOMES.find(item=>item.id===result?.outcome);
+  if(current(g).id!==p.id||g.phase!=='rouletteResult'||result?.playerId!==p.id||!outcome||Date.now()<(g.animationUntil||0))return fail('Дождитесь результата рулетки');
+  log(g,`${p.name}: рулетка — ${outcome.title}, ${outcome.payout?`выплата ${outcome.payout}k`:'ставка проиграна'}`);
+  if(outcome.id==='extraRoll')g.bonusRolls=(g.bonusRolls||0)+1;
+  if(outcome.id==='start'||outcome.id==='jail'){
+   const destination=outcome.id==='start'?0:10,steps=(destination-p.position+40)%40;
+   g.move={playerId:p.id,steps,stepMs:80};p.position=destination;g.animationUntil=Date.now()+steps*80;
+   if(outcome.id==='jail'){p.jailed=true;p.jailAttempts=0;p.doubles=0;g.extraTurn=undefined}
+  }
+  next(g);
+ }
  else if(b.action==='buy'){if(current(g).id!==p.id||g.phase!=='buy')return fail('Покупка недоступна');const t=tiles[p.position];if(!t.price||p.money<t.price)return fail('Недостаточно денег');p.money-=t.price;g.owners[p.position]=p.id;log(g,`${p.name} покупает ${t.name} за ${t.price}k`);next(g)}
  else if(b.action==='auction'){if(current(g).id!==p.id||g.phase!=='buy')return fail('Аукцион недоступен');g.auction={tile:p.position,bid:0,passed:[p.id],seller:p.id};g.phase='auction';log(g,`Начинается аукцион: ${tiles[p.position].name}`);settleAuction(g)}
  else if(b.action==='bid'){const a=g.auction;const amount=Number(b.amount);if(g.phase!=='auction'||!a||p.bankrupt||a.passed.includes(p.id)||!Number.isSafeInteger(amount)||amount%2!==0||amount<(tiles[a.tile].price||0)||amount<=a.bid||amount>p.money)return fail('Ставка должна быть чётной, не ниже стоимости компании и выше текущей ставки');a.bid=amount;a.bidder=p.id;log(g,`${p.name} предлагает ${amount}k`);settleAuction(g)}
@@ -171,7 +284,8 @@ export async function POST(req:Request){
   if(p.money<g.debt.amount)return fail('Недостаточно денег. Возьмите кредит или выберите имущество для залога');
   const debt=g.debt;p.money-=debt.amount;const receiver=g.players.find(x=>x.id===debt.to);if(receiver)receiver.money+=debt.amount;
   log(g,`${p.name} платит ${debt.amount}k${receiver?' игроку '+receiver.name:' банку'} · ${debt.reason}`);
-  if(debt.kind==='loan'){p.loan=undefined;g.debt=undefined;g.phase=p.jailed?'jail':'roll'}
+  if(debt.kind==='trap'){g.debt=undefined;g.trapResult=undefined;resolveTile(g,p,(g.dice[0]||0)+(g.dice[1]||0))}
+  else if(debt.kind==='loan'){p.loan=undefined;g.debt=undefined;g.phase=p.jailed?'jail':'roll'}
   else if(debt.afterPayment==='releaseRoll'||debt.afterPayment==='releaseEnd'){
    p.jailed=false;p.jailAttempts=0;log(g,`${p.name} выходит из тюрьмы`);g.debt=undefined;
    if(debt.afterPayment==='releaseRoll')g.phase='roll';else movePlayer(g,p,g.dice[0],g.dice[1]);
@@ -186,6 +300,6 @@ export async function POST(req:Request){
  else if(b.action==='tradeResponse'){const t=g.trade;if(!t||t.to!==p.id)return fail('Предложение недоступно');const from=g.players.find(x=>x.id===t.from)!;if(b.accept){if(from.bankrupt||p.bankrupt||from.money<t.giveCash||p.money<t.takeCash||t.give.some(i=>g!.owners[i]!==from.id)||t.take.some(i=>g!.owners[i]!==p!.id))return fail('Условия сделки изменились');from.money+=t.takeCash-t.giveCash;p.money+=t.giveCash-t.takeCash;t.give.forEach(i=>g!.owners[i]=p!.id);t.take.forEach(i=>g!.owners[i]=from.id);log(g,`${p.name} принимает сделку с ${from.name}`)}else log(g,`${p.name} отклоняет сделку`);g.trade=undefined}
  else if(b.action==='cancelTrade'){if(g.trade?.from!==p.id)return fail('Сделка недоступна');g.trade=undefined}
  else if(b.action==='chat'){const message=String(b.message||'').trim().slice(0,160);if(message)log(g,`${p.name}: ${message}`)}
- else return fail('Неизвестное действие');if(g.phase==='auction'&&g.auction){autoPassAuction(g);settleAuction(g)}g.revision++;scheduleBot(g,b.action==='jackpotBet'?2400:850);return Response.json(g);
+ else return fail('Неизвестное действие');if(g.phase==='auction'&&g.auction){autoPassAuction(g);settleAuction(g)}g.revision++;scheduleBot(g,b.action==='jackpotBet'?2400:850);return Response.json(gameView(g,p.id,key));
  }catch{return fail('Не удалось выполнить действие')}
 }
