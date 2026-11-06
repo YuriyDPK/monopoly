@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { POST } from '../app/api/game/route';
+import { GET, POST } from '../app/api/game/route';
 import { CHANCE_CARDS, drawChance } from '../lib/chance';
 import { DIAMOND_FEE, LOAN_PRINCIPAL, LOAN_TOTAL_DUE, LOAN_TURNS, PROPERTY_RENTS, effectivePropertyLevel, propertyRent, propertyUpgradeCost, playerCapital, liquidFunds, tiles, type Game } from '../lib/game';
 
@@ -25,6 +25,301 @@ async function act(game: Game, action: string, extra: Record<string,unknown> = {
   }));
   return {status:response.status,body:await response.json()};
 }
+
+test('surrender during a duel cancels it and refunds both stakes before elimination', async () => {
+  const game=fixture();game.players.push({id:'carol',name:'Каролина',color:'#aaa',money:15000,position:0});
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:700})).status,200);
+  const duelId=game.duel!.id;
+  assert.equal((await act(game,'duelRespond',{duelId,accept:true},'bob')).status,200);
+  assert.equal((await act(game,'surrender',{},'bob')).status,200);
+  assert.equal(game.players[0].money,15000);assert.equal(game.players[1].bankrupt,true);
+  assert.equal(game.duel,undefined);assert.equal(game.phase,'roll');assert.equal(game.turn,0);
+});
+
+test('duel accepts an adjustable bet, pays once, and preserves the ordinary turn and dice', async t => {
+  let now=10000;const values=[0.34,0.68,0.17,0.51]; // 3+5 beats 2+4.
+  t.mock.method(Date,'now',()=>now);t.mock.method(Math,'random',()=>values.shift()??0);
+  const game=fixture();game.dice=[2,2];game.rollSeq=7;game.players[0].doubles=2;
+  game.players[0].loan={principal:3000,totalDue:3300,turnsLeft:4};
+  game.owners={1:'alice'};game.mortgaged=[1];game.mortgageTurns={1:8};
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:700})).status,200);
+  assert.equal(game.phase,'duelInvite');assert.equal(game.duel?.bet,700);
+  assert.deepEqual(game.players.map(p=>p.money),[15000,15000]);
+  const duelId=game.duel!.id,serial=game.turnSerial;
+  assert.equal((await act(game,'duelRespond',{duelId,accept:true})).status,400);
+  assert.equal((await act(game,'duelRespond',{duelId:'stale',accept:true},'bob')).status,400);
+  assert.equal((await act(game,'roll')).status,400);
+  assert.equal((await act(game,'loanTake')).status,400);
+  assert.equal((await act(game,'unmortgage',{tile:1})).status,400);
+  assert.equal((await act(game,'chat',{message:'Смотрим дуэль'},'bob')).status,200);
+  assert.equal((await act(game,'duelRespond',{duelId,accept:true},'bob')).status,200);
+  assert.equal(game.phase,'duelResult');
+  assert.deepEqual(game.duel?.dice,[[3,5],[2,4]]);assert.equal(game.duel?.winner,'alice');
+  assert.deepEqual(game.players.map(p=>p.money),[14300,14300]);
+  assert.equal((await act(game,'duelRespond',{duelId,accept:true},'bob')).status,400);
+  assert.equal((await act(game,'duelContinue',{duelId})).status,400);
+  now+=10000;
+  assert.equal((await act(game,'duelContinue',{duelId},'bob')).status,400);
+  assert.equal((await act(game,'duelContinue',{duelId:'stale'})).status,400);
+  assert.equal((await act(game,'duelContinue',{duelId})).status,200);
+  assert.deepEqual(game.players.map(p=>p.money),[15700,14300]);
+  assert.equal(game.phase,'roll');assert.equal(game.turn,0);assert.equal(game.turnSerial,serial);
+  assert.deepEqual(game.dice,[2,2]);assert.equal(game.rollSeq,7);assert.equal(game.players[0].position,0);
+  assert.equal(game.players[0].doubles,2);assert.equal(game.players[0].loan?.turnsLeft,4);
+  assert.equal(game.mortgageTurns?.[1],8);assert.equal(game.duel,undefined);
+  assert.equal((await act(game,'duelContinue',{duelId})).status,400);
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:100})).status,400);
+  assert.equal((await act(game,'roll')).status,200);
+  assert.equal(game.rollSeq,8);
+});
+
+test('duel pays the opponent or refunds a tie without creating or losing money', async t => {
+  let now=10000,values:number[]=[];
+  t.mock.method(Date,'now',()=>now);t.mock.method(Math,'random',()=>values.shift()??0);
+  for(const [dice,balances,winner] of [
+    [[0,0.17,0.99,0.99],[14100,15900],'bob'],
+    [[0.34,0.51,0.99,0],[15000,15000],undefined],
+  ] as const) {
+    const game=fixture();values=[...dice];
+    assert.equal((await act(game,'duelChallenge',{to:'bob',bet:900})).status,200);
+    const duelId=game.duel!.id;
+    await act(game,'duelRespond',{duelId,accept:true},'bob');
+    assert.equal(game.duel?.winner,winner);now+=10000;
+    await act(game,'duelContinue',{duelId});
+    assert.deepEqual(game.players.map(p=>p.money),balances);
+    assert.equal(game.players.reduce((sum,p)=>sum+p.money,0),30000);
+    assert.equal(game.phase,'roll');assert.equal(game.turn,0);
+  }
+});
+
+test('duel validates stakes, parties, phases, movement and active contracts', async () => {
+  const game=fixture();game.players[1].money=950;
+  for(const bet of [-100,0,50,150,100.5,1000,Number.MAX_SAFE_INTEGER,'invalid']) {
+    assert.equal((await act(game,'duelChallenge',{to:'bob',bet})).status,400);
+    assert.equal(game.phase,'roll');assert.equal(game.duel,undefined);
+  }
+  assert.equal((await act(game,'duelChallenge',{to:'alice',bet:500})).status,400);
+  assert.equal((await act(game,'duelChallenge',{to:'missing',bet:500})).status,400);
+  assert.equal((await act(game,'duelChallenge',{to:'alice',bet:500},'bob')).status,400);
+  game.players[1].bankrupt=true;
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,400);
+  game.players[1].bankrupt=false;
+  game.started=false;
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,400);
+  game.started=true;
+  for(const phase of ['buy','pay','auction','jail','finished'] as const) {
+    game.phase=phase;assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,400);
+  }
+  game.phase='roll';game.animationUntil=Date.now()+10000;
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,400);
+  game.animationUntil=0;
+  game.trade={from:'alice',to:'bob',give:[],take:[],giveCash:0,takeCash:0};
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,400);
+  game.trade=undefined;
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:900})).status,200);
+});
+
+test('duel rejection and cancellation are free, reject stale responses and consume one challenge per turn', async () => {
+  for(const cancelled of [false,true]) {
+    const game=fixture();
+    assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,200);
+    const duelId=game.duel!.id;
+    assert.equal((await act(game,'duelCancel',{duelId},'bob')).status,400);
+    const result=cancelled?await act(game,'duelCancel',{duelId}):await act(game,'duelRespond',{duelId,accept:false},'bob');
+    assert.equal(result.status,200);assert.equal(game.phase,'roll');assert.equal(game.turn,0);
+    assert.deepEqual(game.players.map(p=>p.money),[15000,15000]);
+    assert.equal((await act(game,'duelRespond',{duelId,accept:true},'bob')).status,400);
+    assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,400);
+    game.phase='pay';game.debt={amount:1,reason:'test'};await act(game,'pay');
+    game.phase='pay';game.debt={amount:1,reason:'test'};await act(game,'pay');
+    assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,200);
+  }
+});
+
+test('duel rechecks cash on acceptance and allows cancellation after a failed acceptance', async () => {
+  const game=fixture();
+  assert.equal((await act(game,'duelChallenge',{to:'bob',bet:700})).status,200);
+  const duelId=game.duel!.id;game.players[1].money=600;
+  assert.equal((await act(game,'duelRespond',{duelId,accept:true},'bob')).status,400);
+  assert.deepEqual(game.players.map(p=>p.money),[15000,600]);assert.equal(game.phase,'duelInvite');
+  assert.equal((await act(game,'duelCancel',{duelId})).status,200);
+  assert.equal(game.phase,'roll');
+});
+
+test('bots automatically accept funded duels and decline when cash is no longer sufficient', async t => {
+  let now=10000;t.mock.method(Date,'now',()=>now);t.mock.method(Math,'random',()=>0);
+  const callbacks:Array<()=>Promise<void>>=[];
+  t.mock.method(globalThis,'setTimeout',(callback:()=>Promise<void>)=>{callbacks.push(callback);return {} as ReturnType<typeof setTimeout>});
+  for(const funded of [true,false]) {
+    const game=fixture();game.players[1].bot=true;
+    assert.equal((await act(game,'duelChallenge',{to:'bob',bet:500})).status,200);
+    const duelId=game.duel!.id;
+    if(!funded)game.players[1].money=400;
+    assert.equal(callbacks.length,1);await callbacks.shift()!();
+    if(funded){
+      assert.equal(game.phase,'duelResult');now+=10000;
+      assert.equal((await act(game,'duelContinue',{duelId})).status,200);
+      assert.deepEqual(game.players.map(p=>p.money),[15000,15000]);
+    }else{
+      assert.equal(game.phase,'roll');assert.deepEqual(game.players.map(p=>p.money),[15000,400]);
+    }
+    assert.equal(game.phase,'roll');assert.equal(callbacks.length,0);
+  }
+});
+
+test('jackpot cell chooses numbers or roulette at the 50 percent boundary', async t => {
+  let values:number[]=[];
+  t.mock.method(Math,'random',()=>values.shift()??0);
+  for (const [random,phase] of [[0,'jackpot'],[0.499999,'jackpot'],[0.5,'roulette'],[0.999999,'roulette']] as const) {
+    const game=fixture();
+    game.players[0].position=17;
+    values=[0,0.2,random]; // 1 + 2 lands on the jackpot cell.
+    assert.equal((await act(game,'roll')).status,200);
+    assert.equal(game.players[0].position,20);
+    assert.equal(game.phase,phase);
+    assert.equal(game.players[0].money,15000);
+  }
+});
+
+test('roulette follows the agreed percentages and pays each result exactly once', async t => {
+  let now=10000, random=0;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(Math,'random',()=>random);
+  const expected=[
+    {id:'empty',from:0,to:30,money:14000},
+    {id:'refund',from:30,to:60,money:15000},
+    {id:'prize',from:60,to:75,money:16000},
+    {id:'extraRoll',from:75,to:85,money:15000},
+    {id:'start',from:85,to:90,money:17000},
+    {id:'jackpot',from:90,to:95,money:19000},
+    {id:'jail',from:95,to:100,money:14000},
+  ];
+  for (const outcome of expected) {
+    for (let bucket=outcome.from;bucket<outcome.to;bucket++) {
+      const game=fixture();
+      game.phase='roulette';game.players[0].position=20;
+      random=bucket/100;
+      assert.equal((await act(game,'rouletteSpin',{outcome:'jackpot'})).status,200);
+      assert.equal(game.phase,'rouletteResult');
+      assert.equal(game.rouletteResult?.outcome,outcome.id,`percentile ${bucket}`);
+      assert.equal(game.players[0].money,outcome.money);
+      assert.equal((await act(game,'rouletteSpin')).status,400);
+      assert.equal((await act(game,'rouletteContinue')).status,400);
+      now+=10000;
+      assert.equal((await act(game,'rouletteContinue',{},'bob')).status,400);
+      assert.equal((await act(game,'rouletteContinue')).status,200);
+      assert.equal(game.players[0].money,outcome.money);
+      assert.equal((await act(game,'rouletteContinue',{},'alice')).status,400);
+      assert.equal(game.players[0].money,outcome.money);
+      assert.equal(game.debt,undefined);
+      if(outcome.id==='extraRoll') {
+        assert.equal(game.turn,0);assert.equal(game.phase,'roll');
+      } else {
+        assert.equal(game.turn,1);assert.equal(game.phase,'roll');
+      }
+      assert.equal(game.players[0].position,outcome.id==='start'?0:outcome.id==='jail'?10:20);
+      assert.equal(!!game.players[0].jailed,outcome.id==='jail');
+      assert.ok(game.log.some(line=>line.includes('рулетка')));
+    }
+  }
+});
+
+test('roulette saves a random stop within the chosen sector, independent of the outcome and client input', async t => {
+  t.mock.method(Date,'now',()=>10000);
+  let values:number[]=[];
+  t.mock.method(Math,'random',()=>values.shift()??0.5);
+  const positions:number[]=[];
+  for(const [random,expected] of [[0,0.1],[0.25,0.3],[0.75,0.7],[0.999999,0.8999992]]) {
+    const game=fixture();game.phase='roulette';game.players[0].position=20;
+    values=[0.8,random]; // Same extra-roll outcome, independently varied landing point.
+    assert.equal((await act(game,'rouletteSpin',{outcome:'jackpot',stopPosition:0.5})).status,200);
+    assert.equal(game.rouletteResult?.outcome,'extraRoll');
+    const position=game.rouletteResult?.stopPosition;
+    assert.equal(typeof position,'number');
+    assert.ok(Math.abs(position!-expected)<1e-9);
+    assert.ok(position!>=0.1&&position!<0.9,'Keep a safe distance from adjacent sectors');
+    positions.push(position!);
+    assert.equal(game.players[0].money,15000);
+    const saved=structuredClone(game.rouletteResult);
+    const response=await GET(new Request(`http://localhost/api/game?room=${game.code}`));
+    assert.deepEqual((await response.json()).rouletteResult,saved);
+    assert.equal((await act(game,'rouletteSpin')).status,400);
+    assert.deepEqual(game.rouletteResult,saved,'A retry must not reroll the landing point');
+  }
+  assert.equal(new Set(positions).size,4);
+});
+
+test('roulette requires the active player, completed movement, and a funded stake; skipping is free', async t => {
+  t.mock.method(Date,'now',()=>10000);
+  const game=fixture();game.phase='roulette';game.players[0].position=20;
+  assert.equal((await act(game,'rouletteSpin',{},'bob')).status,400);
+  assert.equal((await act(game,'rouletteSkip',{},'bob')).status,400);
+  assert.equal((await act(game,'jackpotBet',{numbers:[1]})).status,400);
+  game.animationUntil=12000;
+  assert.equal((await act(game,'rouletteSpin')).status,400);
+  assert.equal((await act(game,'rouletteSkip')).status,400);
+  game.animationUntil=0;game.players[0].money=999;
+  assert.equal((await act(game,'rouletteSpin')).status,400);
+  assert.equal(game.players[0].money,999);
+  assert.equal((await act(game,'rouletteSkip')).status,200);
+  assert.equal(game.players[0].money,999);
+  assert.equal(game.turn,1);
+});
+
+test('roulette extra roll stacks with doubles; jail cancels all extra rolls without a start reward', async t => {
+  let now=10000;
+  t.mock.method(Date,'now',()=>now);
+  const random=t.mock.method(Math,'random',()=>0.8);
+  const game=fixture();game.phase='roulette';game.players[0].position=20;
+  game.players[0].doubles=1;game.extraTurn='alice';
+  await act(game,'rouletteSpin');now+=10000;
+  await act(game,'rouletteContinue');
+  assert.equal(game.turn,0);
+  assert.equal(game.players[0].money,15000);
+  // Complete the turn earned by doubles; the roulette roll must remain available.
+  game.phase='pay';game.debt={amount:1,reason:'Rent'};
+  await act(game,'pay');
+  assert.equal(game.turn,0);assert.equal(game.phase,'roll');
+  game.phase='pay';game.debt={amount:1,reason:'Rent'};
+  await act(game,'pay');assert.equal(game.turn,1);
+
+  const jail=fixture();jail.phase='roulette';jail.players[0].position=20;
+  jail.extraTurn='alice';jail.players[0].doubles=2;
+  random.mock.mockImplementation(()=>0.95);
+  await act(jail,'rouletteSpin');now+=10000;
+  await act(jail,'rouletteContinue');
+  assert.equal(jail.turn,1);assert.equal(jail.extraTurn,undefined);
+  assert.equal(jail.players[0].position,10);
+  assert.equal(jail.players[0].money,14000);
+  assert.equal(jail.players[0].jailed,true);
+  assert.equal(jail.players[0].jailAttempts,0);
+  assert.equal(jail.players[0].doubles,0);
+});
+
+test('bots spin and acknowledge roulette, and skip when their cash is below the stake', async t => {
+  let now=10000;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(Math,'random',()=>0.65);
+  const callbacks:Array<()=>Promise<void>>=[];
+  t.mock.method(globalThis,'setTimeout',(callback:()=>Promise<void>)=>{
+    callbacks.push(callback);return {} as ReturnType<typeof setTimeout>;
+  });
+  for (const cash of [15000,999]) {
+    const game=fixture();game.phase='roulette';game.players[0].position=20;
+    game.players[0].bot=true;game.players[0].money=cash;
+    await act(game,'chat',{message:'Test'},'bob');
+    assert.equal(callbacks.length,1);
+    await callbacks.shift()!();
+    if(cash>=1000){
+      assert.equal(game.phase,'rouletteResult');
+      now+=10000;assert.equal(callbacks.length,1);
+      await callbacks.shift()!();
+      assert.equal(game.players[0].money,16000);
+    }else assert.equal(game.players[0].money,999);
+    assert.equal(game.turn,1);assert.equal(game.phase,'roll');
+    assert.equal(callbacks.length,0);
+  }
+});
 
 test('individual properties charge little; a street triples base rent and upgrades rise sharply', () => {
   assert.equal(Object.keys(PROPERTY_RENTS).length,22);

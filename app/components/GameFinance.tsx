@@ -34,7 +34,7 @@ export function FinancePanel({ game, player, moving, action }: { game: Game; pla
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const isMyTurn = game.players[game.turn]?.id === player.id;
-  const available = isMyTurn && !moving && !player.bankrupt && game.phase !== 'finished' && game.phase !== 'auction';
+  const available = isMyTurn && !moving && !player.bankrupt && !game.duel && game.phase !== 'finished' && game.phase !== 'auction';
   const canRepay = available && game.phase !== 'pay' && player.money >= (player.loan?.totalDue ?? LOAN_TOTAL_DUE);
   async function submit(kind: 'loanTake' | 'loanRepay') {
     setPending(true); setFailed(false);
@@ -49,11 +49,11 @@ export function FinancePanel({ game, player, moving, action }: { game: Game; pla
       <strong>{money(player.loan.totalDue)} <small>к возврату</small></strong>
       <p>{player.loan.turnsLeft > 0 ? `Срок через ${player.loan.turnsLeft} своих ходов` : 'Срок наступил — погасите кредит'}</p>
       <progress value={Math.max(0, LOAN_TURNS - player.loan.turnsLeft)} max={LOAN_TURNS} aria-label="Срок кредита" />
-      <button className="secondary" onClick={() => { setFailed(false); setOpen(true); }}>Условия и погашение</button>
+      <button className="secondary" disabled={!!game.duel} onClick={() => { setFailed(false); setOpen(true); }}>Условия и погашение</button>
     </> : player.loanUsed ? <p>Кредит погашен. Доступен один кредит за партию.</p> : <>
       <strong>Нужны средства?</strong>
       <p>{money(LOAN_PRINCIPAL)} на {LOAN_TURNS} своих ходов</p>
-      <button className="secondary" onClick={() => { setFailed(false); setOpen(true); }}>Взять кредит</button>
+      <button className="secondary" disabled={!!game.duel} onClick={() => { setFailed(false); setOpen(true); }}>Взять кредит</button>
     </>}
     {open && <Dialog title={player.loan ? 'Ваш кредит' : 'Кредит на развитие'} icon="↗" onClose={() => setOpen(false)}>
       <p>Один кредит за партию. Проценты фиксированные, досрочное погашение без дополнительной комиссии.</p>
@@ -74,7 +74,7 @@ export function GameEvents({ game, player, moving, action }: { game: Game; playe
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const submitting = useRef(false);
-  if (moving || game.players[game.turn]?.id !== player.id || player.bankrupt) return null;
+  if (moving || game.players[game.turn]?.id !== player.id || player.bankrupt || game.debt?.kind === 'trap') return null;
   const chance = game.phase === 'chanceResult' ? game.chanceResult ?? {id: 'legacy-chance', title: 'Шанс завершён', description: 'Награда уже получена. Подтвердите карточку, чтобы продолжить игру.', amount: 0, playerId: player.id} : undefined;
   const debt = game.phase === 'pay' && game.debt?.kind ? game.debt : undefined;
   if (!chance && !debt) return null;

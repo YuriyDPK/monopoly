@@ -1,0 +1,14 @@
+.panel { --control-size: min(84cqw, calc(100cqh - 60px), 560px); --wheel-size: calc(var(--control-size) * .88); position: absolute; inset: clamp(6px, 2cqw, 14px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(6px, 1.6cqh, 12px); }
+.wheelWrap { position: relative; width: var(--wheel-size); aspect-ratio: 1; flex-shrink: 0; }
+.wheel { position: absolute; inset: 0; border-radius: 50%; border: clamp(3px, 1cqw, 7px) solid #eadcb1; box-shadow: 0 0 0 2px #846738, 0 0 0 5px #1118, 0 8px 24px #0006; transform: rotate(0deg); }
+.pointer { position: absolute; z-index: 3; top: -6px; left: calc(50% - clamp(6px, 2cqw, 11px)); width: 0; height: 0; border-left: clamp(6px, 2cqw, 11px) solid transparent; border-right: clamp(6px, 2cqw, 11px) solid transparent; border-top: clamp(14px, 5cqw, 25px) solid #fff2c6; filter: drop-shadow(0 2px 2px #0008); }
+.sector { position: absolute; left: 50%; top: 50%; width: calc(var(--wheel-size) * .3); display: flex; flex-direction: column; align-items: center; gap: clamp(1px, .5cqw, 4px); font-size: clamp(7px, calc(var(--wheel-size) / 32), 18px); line-height: 1.12; color: #fff; text-shadow: 0 1px 3px #0006; }
+.sector strong { max-width: 100%; overflow-wrap: anywhere; font-weight: 700; text-align: center; }
+.sector[data-selected=true] { color: #fff9c9; text-shadow: 0 0 10px #fff6; }
+.payout { font-size: .78em; white-space: nowrap; }
+.hub { position: absolute; z-index: 1; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 21%; aspect-ratio: 1; border-radius: 50%; background: #202729; border: 2px solid #eadcb1; box-shadow: 0 3px 12px #0008; }
+.panel .control { flex-shrink: 0; width: var(--control-size); height: clamp(26px, 8cqh, 44px); margin: 0; padding: 3px 8px; font-size: clamp(10px, 2.6cqw, 14px); }
+.status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.spinning { animation-name: spin; animation-timing-function: cubic-bezier(.12, .65, .12, 1); animation-fill-mode: both; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(var(--stop-angle)); } }
+@media (prefers-reduced-motion: reduce) { .spinning { animation: none; transform: rotate(var(--stop-angle)); } }

@@ -1,0 +1,24 @@
+.marker { position: absolute; z-index: 4; container-type: size; pointer-events: none; display: grid; place-items: center; border: 2px solid #ffb650; background: #ffb65024; box-shadow: inset 0 0 0 1px #6e400d, inset 0 0 12px #ffb65050; }
+.markerBadge { display: flex; flex-direction: column; align-items: center; max-width: calc(100% - 2px); padding: 1px; border: 1px solid #ffb650; background: #302214ed; color: #fff0cb; font-size: clamp(4px, min(14cqw, 18cqh), 9px); font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.markerBadge b { color: #ffc873; font-size: clamp(5px, min(19cqw, 25cqh), 12px); }
+.setup { display: flex; flex-direction: column; gap: 8px; }
+.setup fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+.setup legend { margin-bottom: 7px; font-weight: 700; }
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.choices label { display: flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid #606066; padding: 8px 3px; cursor: pointer; }
+.choices .chosen { border-color: #c9ef6c; background: #c9ef6c12; }
+.choices input { width: 12px; height: 12px; margin: 0; accent-color: #c9ef6c; }
+.setup p { margin: 0; }
+.setup button { width: 100%; font-size: 11px; padding: 8px 4px; }
+.note { color: #a7b8aa; font-size: 10px; line-height: 1.4; }
+.status { border-top: 1px solid #38383d; margin-top: 16px; padding-top: 14px; }
+.status > strong { color: #c9ef6c; font-size: 10px; letter-spacing: 1px; }
+.status p { color: #a7b8aa; font-size: 11px; line-height: 1.4; margin: 8px 0 0; }
+.reveal { position: absolute; inset: clamp(8px, 3cqw, 22px); z-index: 1; display: flex; flex-direction: column; align-items: stretch; justify-content: safe center; text-align: center; gap: clamp(4px, 1.8cqh, 13px); overflow: auto; }
+.reveal h2 { font-size: clamp(18px, 6cqw, 34px); margin: 0; line-height: 1.1; }
+.reveal p { font-size: clamp(9px, 2.7cqw, 13px); line-height: 1.35; margin: 0; }
+.kicker { color: #efc96c; font-size: clamp(8px, 2.3cqw, 11px); letter-spacing: .08em; }
+.amount { color: #ffb38e; font-size: clamp(24px, 10cqw, 56px); line-height: 1.1; }
+.reveal button { font-size: clamp(10px, 2.8cqw, 14px); padding: clamp(6px, 2cqh, 12px) 6px; }
+.reveal .note { color: #a7b8aa; font-size: clamp(8px, 2.3cqw, 11px); }
+.reveal .error { color: #ffb38e; }
