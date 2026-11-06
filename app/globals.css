@@ -173,6 +173,21 @@
 .stars-side-1{align-items:flex-start;justify-content:center;flex-direction:column;transform:none}
 .stars-side-2{align-items:flex-start;justify-content:center;transform:none}
 .stars-side-3{align-items:flex-end;justify-content:center;flex-direction:column;transform:none}
+.trade-board-panel h2{padding-right:24px;overflow-wrap:anywhere}
+.trade-board-panel .panel-kicker{padding-right:22px}
+.trade-board-panel .trade-cash{font-size:clamp(16px,4cqw,24px);font-weight:700;color:#f4f4ed;margin:8px 0}
+.trade-board-panel .trade-empty,.trade-board-panel .trade-hint{color:#8d9a90;font-size:clamp(9px,2cqw,12px)}
+.trade-board-panel .trade-columns h3{overflow-wrap:anywhere}
+.trade-board-panel .trade-columns label{display:block;font-size:clamp(8px,1.8cqw,10px);color:#aab9ad;letter-spacing:.5px}
+.trade-board-panel input[type=number]{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:8px;background:#202024;border:1px solid #5b6259;color:#f4f4ed;font-size:clamp(12px,3cqw,16px)}
+.trade-board-panel input:focus-visible{outline:2px solid #c9ef6c;outline-offset:2px}
+.trade-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
+.trade-actions>button{flex:1 1 auto;min-height:36px}
+.trade-actions .text-button{margin:0}
+.trade-property-remove{width:100%;border:1px solid #555b51;padding:5px;background:#31332f;color:#f4f4ed;text-align:left}
+.trade-property-remove>span:last-child{margin-left:auto}
+.trade-property>span{overflow-wrap:anywhere}
+.trade-board-panel .trade-validation{color:#f2b5a3}
 .trade-notice{color:#c9ef6c;position:relative}
 .trade-notice:after{content:'';position:absolute;right:3px;top:3px;width:6px;height:6px;border-radius:50%;background:#f47668}
 .mortgaged-cell{background:rgba(105,105,105,.57)}
