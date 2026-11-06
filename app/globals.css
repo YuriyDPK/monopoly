@@ -236,3 +236,8 @@
 .board-brand-balenciaga .brand-icon{width:160%!important;height:45%!important}
 .board-brand-porsche .brand-icon{width:78%;height:70%}
 .custom-property-logo .brand-balenciaga{width:85%;height:65%}
+
+/* Full-colour crests and wordmarks keep their original SVG colours. */
+.brand-icon.brand-full-color{background-color:transparent;background-repeat:no-repeat;background-position:center;background-size:contain}
+.board-replacement.board-brand-tesla .brand-icon{width:100%;height:34%}
+.brand-icon.brand-cdprojekt.brand-full-color{background-size:100% auto}
