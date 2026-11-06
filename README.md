@@ -39,7 +39,7 @@ npm run dev
 - Пополнение: [Cash Register — modusmogulus](https://freesound.org/people/modusmogulus/sounds/794903/).
 - Платёж: [Natural Metal Coin Sound 1 — The-Sacha-Rush](https://freesound.org/people/The-Sacha-Rush/sounds/400115/).
 
-Иконки X, Instagram, Telegram и McDonald’s взяты из [Simple Icons](https://github.com/simple-icons/simple-icons).
+Иконки X, Instagram, Telegram, McDonald’s, Tesla, CD Projekt, Porsche, Anthropic, NVIDIA, Apple и Xiaomi взяты из [Simple Icons](https://github.com/simple-icons/simple-icons). Логотип OpenAI взят из [SVGL](https://svgl.app/library/openai.svg), логотип Balenciaga — из [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Balenciaga2017Logo.svg).
 
 За прохождение старта начисляется 2 000k, за остановку точно на старте — 3 000k всего. Клетка «Деньги» требует оплаты 2 000k банку с подтверждением; при нехватке средств можно продать улучшения и заложить имущество.
 

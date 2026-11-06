@@ -226,4 +226,13 @@
 
 .player-capital{font-size:10px;color:#a9bbaa;margin-top:4px;white-space:nowrap}
 
-.player-turns{font-size:10px;color:#a9bbaa;margin-top:4px}.board{container-type:inline-size}.board-wordmark{color:#111;font-family:Arial,sans-serif;font-size:clamp(7px,1.85cqw,18px);font-weight:800;text-align:center;letter-spacing:-.03em}.board-wordmark span{display:block;max-width:88%;line-height:1.05;overflow-wrap:normal}.board-wordmark-side-0 span,.board-wordmark-side-2 span{transform:rotate(-90deg);min-width:155%}.replacement-property-logo{padding:5px;color:#111;font-size:clamp(7px,1.2cqw,12px);font-family:Arial,sans-serif;font-weight:800;text-align:center;line-height:1.1}.copy-modal input{width:100%;padding:12px;border:1px solid #758c75;background:#1c1c1f;color:white;font:inherit}
+.player-turns{font-size:10px;color:#a9bbaa;margin-top:4px}.board{container-type:inline-size}.copy-modal input{width:100%;padding:12px;border:1px solid #758c75;background:#1c1c1f;color:white;font:inherit}
+
+/* Brand marks are SVG masks so they stay sharp at all board sizes. */
+.brand-tesla,.brand-cdprojekt{background:#d82931}
+.brand-nvidia{background:#76b900}.brand-xiaomi{background:#ff6900}.brand-anthropic{background:#b35d42}
+.board-replacement .brand-icon{width:65%;height:65%}
+.board-replacement.board-brand-side-0 .brand-icon,.board-replacement.board-brand-side-2 .brand-icon{flex:none;width:140%;height:48%;transform:rotate(-90deg)}
+.board-brand-balenciaga .brand-icon{width:160%!important;height:45%!important}
+.board-brand-porsche .brand-icon{width:78%;height:70%}
+.custom-property-logo .brand-balenciaga{width:85%;height:65%}
