@@ -115,7 +115,7 @@ test('positive chance card is applied once, after confirmation and movement', as
 test('negative chance cards create payable debt instead of making a balance negative', async t => {
   let now=10000;
   t.mock.method(Date,'now',()=>now);
-  const values=[0.34,0.51,0.6]; // Insurance: -400.
+  const values=[0.34,0.51,7.1/14]; // Insurance: -400.
   t.mock.method(Math,'random',()=>values.shift()??0);
   const game=fixture();
   game.players[0].money=100;
@@ -142,10 +142,10 @@ test('a chance reward from a room created before the update can be acknowledged 
   assert.equal(game.phase,'roll');
 });
 
-test('chance has 13 distinct events, no immediate repeat, and portfolio-based amounts', t => {
+test('chance has 14 distinct events, no immediate repeat, and portfolio-based amounts', t => {
   const game=fixture(),player=game.players[0];
-  assert.equal(CHANCE_CARDS.length,13);
-  assert.equal(new Set(CHANCE_CARDS.map(card=>card.id)).size,13);
+  assert.equal(CHANCE_CARDS.length,14);
+  assert.equal(new Set(CHANCE_CARDS.map(card=>card.id)).size,14);
   const random=t.mock.method(Math,'random',()=>0);
   const first=drawChance(game,player);
   game.lastChanceId=first.id;
@@ -153,9 +153,9 @@ test('chance has 13 distinct events, no immediate repeat, and portfolio-based am
   game.lastChanceId=undefined;
   game.owners={1:'alice',3:'alice',39:'bob'};
   game.levels={1:2,3:5,39:5};
-  random.mock.mockImplementation(()=>10.1/13);
+  random.mock.mockImplementation(()=>10.1/14);
   assert.equal(drawChance(game,player).amount,-1300);
-  random.mock.mockImplementation(()=>5.1/13);
+  random.mock.mockImplementation(()=>5.1/14);
   assert.equal(drawChance(game,player).amount,400);
 });
 
@@ -445,4 +445,43 @@ test('each player counts only their own dice rolls, including a jail attempt', a
   assert.equal(game.players[0].turnsTaken,undefined);
   await act(game,'jailRoll');assert.equal(game.players[0].turnsTaken,1);assert.equal(game.players[1].turnsTaken,undefined);
   now+=10000;await act(game,'roll');assert.equal(game.players[1].turnsTaken,1);assert.equal(game.players[0].turnsTaken,1);
+});
+
+
+test('a reverse chance card affects only the next roll and then restores normal movement', async t => {
+  let now=10000;t.mock.method(Date,'now',()=>now);
+  const rolls=[0.34,0.51,13.1/14,0,0.2,0,0.2];t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const game=fixture();
+  await act(game,'roll');assert.equal(game.players[0].position,7);
+  assert.equal(game.chanceResult?.id,'reverse-direction');assert.equal(game.chanceResult?.reverseNextMove,true);
+  now+=10000;assert.equal((await act(game,'chanceContinue',{},'bob')).status,400);
+  assert.equal((await act(game,'chanceContinue')).status,200);assert.equal(game.players[0].reverseNextMove,true);assert.equal(game.turn,1);
+  game.turn=0;game.phase='roll';now+=10000;await act(game,'roll');
+  assert.equal(game.players[0].position,4);assert.equal(game.move?.direction,-1);assert.equal(game.players[0].reverseNextMove,undefined);assert.equal(game.phase,'pay');
+  now+=10000;await act(game,'pay');game.turn=0;game.phase='roll';now+=10000;await act(game,'roll');
+  assert.equal(game.players[0].position,7);assert.equal(game.move?.direction,undefined);
+});
+
+test('moving backwards across start does not award salary', async t => {
+  t.mock.method(Math,'random',(()=>{const rolls=[0,0.2];return()=>rolls.shift()??0})());
+  const game=fixture();game.players[0].position=2;game.players[0].reverseNextMove=true;
+  await act(game,'roll');assert.equal(game.players[0].position,39);assert.equal(game.players[0].money,15000);
+  assert.equal(game.phase,'buy');assert.equal(game.move?.direction,-1);
+});
+
+test('a reverse roll into the police square uses the correct landing before transfer', async t => {
+  t.mock.method(Math,'random',(()=>{const rolls=[0,0.2];return()=>rolls.shift()??0})());
+  const game=fixture();game.players[0].position=33;game.players[0].reverseNextMove=true;
+  await act(game,'roll');assert.equal(game.players[0].position,10);assert.equal(game.players[0].jailed,true);
+  assert.equal(game.move?.direction,-1);assert.equal(game.move?.jailTransfer,true);
+});
+
+test('reverse direction applies to forced jail exit and is consumed by a failed jail roll', async t => {
+  let now=10000;t.mock.method(Date,'now',()=>now);
+  const rolls=[0,0.2,0,0.2,0];t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const failed=fixture();failed.players[0].jailed=true;failed.players[0].position=10;failed.players[0].reverseNextMove=true;failed.phase='jail';
+  await act(failed,'jailRoll');assert.equal(failed.players[0].reverseNextMove,undefined);assert.equal(failed.players[0].position,10);
+  const forced=fixture();forced.players[0].jailed=true;forced.players[0].jailAttempts=2;forced.players[0].position=10;forced.players[0].reverseNextMove=true;forced.phase='jail';
+  await act(forced,'jailRoll');assert.equal(forced.players[0].reverseNextMove,undefined);assert.equal(forced.debt?.moveDirection,-1);
+  now+=10000;await act(forced,'pay');assert.equal(forced.players[0].position,7);assert.equal(forced.move?.direction,-1);assert.equal(forced.players[0].jailed,false);
 });

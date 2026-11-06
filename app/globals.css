@@ -246,3 +246,5 @@
 .board-brand-side-3.board-brand-porsche .brand-icon,
 .board-brand-side-3.board-brand-xiaomi .brand-icon,
 .board-brand-side-3.board-brand-nvidia .brand-icon{transform:rotate(-90deg)}
+
+.player-reverse{font-size:10px;color:#ffca8b;margin-top:4px}.reverse-turn-note{color:#ffca8b!important;font-size:10px!important;margin:8px 0!important}
