@@ -100,14 +100,15 @@ function eliminate(g:Game, player:Player, receiver:Player | undefined, reason:st
  if(g.players.filter(p=>!p.bankrupt).length<=1){g.phase='finished';g.winner=g.players.find(p=>!p.bankrupt)?.id;g.extraTurn=undefined;g.bonusRolls=undefined;g.debt=undefined;g.auction=undefined;g.trade=undefined;g.chanceResult=undefined;g.rouletteResult=undefined;g.duel=undefined;g.traps=[];g.trapResult=undefined;return}
  if(g.auction){if(g.auction.bidder===player.id){g.auction.bidder=undefined;g.auction.bid=0}if(!g.auction.passed.includes(player.id))g.auction.passed.push(player.id)}
 }
+function recordLanding(g:Game,tile:number){g.tileVisits ??= {};g.tileVisits[tile]=(g.tileVisits[tile]||0)+1}
 function movePlayer(g:Game,p:Player,d1:number,d2:number,direction:1|-1=1){
  const steps=d1+d2, old=p.position; p.position=(old+direction*steps+40)%40;
- const landed=p.position, tile=tiles[landed];
+ const landed=p.position, tile=tiles[landed];recordLanding(g,landed);
  g.move={playerId:p.id,steps,...(direction===-1?{direction}:{}),jailTransfer:landed===30};
  g.animationUntil=Date.now()+DICE_ROLL_MS+steps*TOKEN_STEP_MS+(landed===30?1800:0);
- if(direction===1&&old+steps>=40){const reward=landed===0?3000:2000;p.money+=reward;log(g,landed===0?`${p.name} останавливается на старте и получает 3,000k`:`${p.name} проходит круг и получает 2,000k`)}
+ if(direction===1&&old+steps>=40){p.lapsCompleted=(p.lapsCompleted||0)+1;const reward=landed===0?3000:2000;p.money+=reward;log(g,landed===0?`${p.name} останавливается на старте и получает 3,000k`:`${p.name} проходит круг и получает 2,000k`)}
  log(g,`${p.name} выбрасывает ${d1}:${d2}${direction===-1?' и движется назад':''} и попадает на «${tile.name}»`);
- if(landed===30){p.position=10;p.jailed=true;p.jailAttempts=0;log(g,`${p.name} отправляется в тюрьму`);next(g);return}
+ if(landed===30){p.position=10;recordLanding(g,10);p.jailed=true;p.jailAttempts=0;log(g,`${p.name} отправляется в тюрьму`);next(g);return}
  landOnTile(g,p,steps);
 }
 function landOnTile(g:Game,p:Player,steps:number){
@@ -271,7 +272,7 @@ export async function POST(req:Request){
   else {
    if(inJail){p.jailed=false;p.jailAttempts=0;log(g,`${p.name} выбрасывает дубль и выходит из тюрьмы`)}
    if(d1===d2){p.doubles=(p.doubles||0)+1;g.extraTurn=p.id}else{p.doubles=0;g.extraTurn=undefined}
-   if((p.doubles||0)>3){const steps=(10-p.position+40)%40;p.position=10;p.jailed=true;p.jailAttempts=0;p.doubles=0;g.extraTurn=undefined;g.move={playerId:p.id,steps,stepMs:80};g.animationUntil=Date.now()+DICE_ROLL_MS+steps*80;log(g,`${p.name} выбрасывает ${d1}:${d2}: четвёртый дубль подряд — в тюрьму за мошенничество`);next(g)}else movePlayer(g,p,d1,d2,direction)
+   if((p.doubles||0)>3){const steps=(10-p.position+40)%40;p.position=10;recordLanding(g,10);p.jailed=true;p.jailAttempts=0;p.doubles=0;g.extraTurn=undefined;g.move={playerId:p.id,steps,stepMs:80};g.animationUntil=Date.now()+DICE_ROLL_MS+steps*80;log(g,`${p.name} выбрасывает ${d1}:${d2}: четвёртый дубль подряд — в тюрьму за мошенничество`);next(g)}else movePlayer(g,p,d1,d2,direction)
   }
  }
  else if(b.action==='jailPay'){if(current(g).id!==p.id||g.phase!=='jail'||!p.jailed)return fail('Выход из тюрьмы недоступен');g.debt={amount:500,reason:'Выход из тюрьмы',afterPayment:'releaseRoll'};g.phase='pay'}
@@ -285,8 +286,8 @@ export async function POST(req:Request){
   else if(card.movement==='nearestAvailableCompany'){
    const old=p.position;const steps=Array.from({length:tiles.length-1},(_,i)=>i+1).find(n=>{const index=(old+n)%tiles.length;return !!tiles[index].price&&!g.owners[index]});
    if(steps===undefined){log(g,`${p.name}: свободных компаний нет`);next(g)}
-   else {p.position=(old+steps)%tiles.length;g.move={playerId:p.id,steps,noDice:true};g.animationUntil=Date.now()+steps*TOKEN_STEP_MS;
-    if(old+steps>=tiles.length){p.money+=2000;log(g,`${p.name} проходит круг и получает 2,000k`)}
+   else {p.position=(old+steps)%tiles.length;recordLanding(g,p.position);g.move={playerId:p.id,steps,noDice:true};g.animationUntil=Date.now()+steps*TOKEN_STEP_MS;
+    if(old+steps>=tiles.length){p.lapsCompleted=(p.lapsCompleted||0)+1;p.money+=2000;log(g,`${p.name} проходит круг и получает 2,000k`)}
     log(g,`${p.name} перемещается к свободной компании «${tiles[p.position].name}»`);landOnTile(g,p,steps)}
   }
   else if(card.amount<0){const amount=-card.amount;if(p.money>=amount){p.money-=amount;log(g,`${p.name} платит ${amount}k банку · Шанс: ${card.title}`);next(g)}else{g.debt={amount,reason:`Шанс: ${card.title}`,kind:'chance'};g.phase='pay'}}
@@ -322,7 +323,7 @@ export async function POST(req:Request){
   if(outcome.id==='extraRoll')g.bonusRolls=(g.bonusRolls||0)+1;
   if(outcome.id==='start'||outcome.id==='jail'){
    const destination=outcome.id==='start'?0:10,steps=(destination-p.position+40)%40;
-   g.move={playerId:p.id,steps,stepMs:80};p.position=destination;g.animationUntil=Date.now()+steps*80;
+   g.move={playerId:p.id,steps,stepMs:80};p.position=destination;recordLanding(g,destination);g.animationUntil=Date.now()+steps*80;
    if(outcome.id==='jail'){p.jailed=true;p.jailAttempts=0;p.doubles=0;g.extraTurn=undefined}
   }
   next(g);

@@ -263,3 +263,9 @@
 .board-brand-side-3.board-brand-nvidia .brand-icon{transform:rotate(-90deg)}
 
 .player-reverse{font-size:10px;color:#ffca8b;margin-top:4px}.reverse-turn-note{color:#ffca8b!important;font-size:10px!important;margin:8px 0!important}
+
+/* End-of-game landing statistics */
+.top-tiles{text-align:left;margin:clamp(6px,2cqh,14px) 0;border-top:1px solid #505056}
+.top-tiles h3{color:#a7b8aa;font-size:clamp(7px,2cqw,10px);letter-spacing:1px;margin:clamp(4px,1.5cqh,9px) 0}
+.top-tiles-row{display:flex;align-items:center;gap:clamp(5px,2cqw,10px);padding:clamp(3px,1.1cqh,6px) 0;border-bottom:1px solid #414147;font-size:clamp(9px,2.8cqw,13px)}
+.top-tiles-rank{color:#c9ef6c;font-weight:700;width:1.3em}.top-tiles-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.top-tiles-name small{font-size:.75em;color:#9bac9b}.top-tiles-row strong{color:#c9ef6c}.top-tiles p{color:#a7b8aa;font-size:clamp(9px,2.5cqw,12px)}

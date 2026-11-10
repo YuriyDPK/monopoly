@@ -788,6 +788,43 @@ test('each player counts only their own dice rolls, including a jail attempt', a
   now+=10000;await act(game,'roll');assert.equal(game.players[1].turnsTaken,1);assert.equal(game.players[0].turnsTaken,1);
 });
 
+test('forward crossing or landing on start counts a lap and a landing for each player', async t => {
+  let values=[0,0.2];t.mock.method(Math,'random',()=>values.shift()??0);
+  const game=fixture();game.players[0].position=38;
+  assert.equal((await act(game,'roll')).status,200);
+  assert.equal(game.players[0].position,1);assert.equal(game.players[0].lapsCompleted,1);
+  assert.equal(game.tileVisits?.[1],1);assert.equal(game.players[1].lapsCompleted,undefined);
+  const exact=fixture();exact.players[0].position=37;values=[0,0.2];
+  assert.equal((await act(exact,'roll')).status,200);
+  assert.equal(exact.players[0].position,0);assert.equal(exact.players[0].lapsCompleted,1);assert.equal(exact.tileVisits?.[0],1);
+});
+
+test('chance movement crossing start counts a lap and records the destination once', async () => {
+  const game=fixture();game.players[0].position=38;game.owners[39]='bob';game.phase='chanceResult';
+  game.chanceResult={id:'nearest-company',title:'Новые возможности',description:'',amount:0,playerId:'alice',movement:'nearestAvailableCompany'};
+  assert.equal((await act(game,'chanceContinue')).status,200);
+  assert.equal(game.players[0].lapsCompleted,1);assert.deepEqual(game.tileVisits,{1:1});
+  game.animationUntil=0;assert.equal((await act(game,'buy')).status,200);assert.deepEqual(game.tileVisits,{1:1});
+});
+
+test('reverse movement and roulette transfers do not count as laps; police and jail are both landings', async t => {
+  let values=[0,0.2];t.mock.method(Math,'random',()=>values.shift()??0);
+  const reverse=fixture();reverse.players[0].position=2;reverse.players[0].reverseNextMove=true;
+  await act(reverse,'roll');assert.equal(reverse.players[0].lapsCompleted,undefined);assert.deepEqual(reverse.tileVisits,{39:1});
+  const police=fixture();police.players[0].position=27;values=[0,0.2];
+  await act(police,'roll');assert.deepEqual(police.tileVisits,{10:1,30:1});
+  const roulette=fixture();roulette.players[0].position=20;roulette.phase='rouletteResult';
+  roulette.rouletteResult={playerId:'alice',outcome:'start'};
+  assert.equal((await act(roulette,'rouletteContinue')).status,200);
+  assert.equal(roulette.players[0].lapsCompleted,undefined);assert.deepEqual(roulette.tileVisits,{0:1});
+});
+
+test('multiple players landing on the same tile contribute to the same total', async t => {
+  t.mock.method(Math,'random',(()=>{const values=[0,0.2,0,0.2];return()=>values.shift()??0})());
+  const game=fixture();await act(game,'roll');game.animationUntil=0;await act(game,'buy');
+  await act(game,'roll');assert.equal(game.tileVisits?.[3],2);
+});
+
 
 test('a reverse chance card affects only the next roll and then restores normal movement', async t => {
   let now=10000;t.mock.method(Date,'now',()=>now);
