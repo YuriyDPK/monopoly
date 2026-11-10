@@ -65,14 +65,19 @@ function beginTurn(g: Game) {
   log(g, `${player.name}: наступил срок возврата кредита — ${player.loan.totalDue}k`);
  }
 }
+function startOrSkipTurn(g:Game){
+ const player=current(g);
+ if(player.skipNextTurn){player.skipNextTurn=undefined;log(g,`${player.name} пропускает ход по карточке «Шанс»`);next(g);return}
+ beginTurn(g);
+}
 function next(g:Game){
  const player=current(g);advanceMortgages(g,player.id);if(player.loan)player.loan.turnsLeft=Math.max(0,player.loan.turnsLeft-1);const alive=g.players.filter(p=>!p.bankrupt);
  if(alive.length<=1){g.phase='finished';g.winner=alive[0]?.id;g.extraTurn=undefined;g.bonusRolls=undefined;g.debt=undefined;g.auction=undefined;g.trade=undefined;g.chanceResult=undefined;g.rouletteResult=undefined;g.traps=[];g.trapResult=undefined;return}
  const doubleTurn=g.extraTurn===player.id;
- if((doubleTurn||(g.bonusRolls||0)>0)&&!player.bankrupt&&!player.jailed){if(!doubleTurn)g.bonusRolls=(g.bonusRolls||0)-1;g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;beginTurn(g);log(g,`${player.name} получает ещё один ход ${doubleTurn?'за дубль':'от рулетки'}`);return}
+ if((doubleTurn||(g.bonusRolls||0)>0)&&!player.bankrupt&&!player.jailed){if(!doubleTurn)g.bonusRolls=(g.bonusRolls||0)-1;g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;log(g,`${player.name} получает ещё один ход ${doubleTurn?'за дубль':'от рулетки'}`);startOrSkipTurn(g);return}
  g.completedTurns ??= {};g.completedTurns[player.id]=(g.completedTurns[player.id]||0)+1;advanceTraps(g);
  g.turnSerial=(g.turnSerial||1)+1;g.extraTurn=undefined;g.bonusRolls=undefined;player.doubles=0;
- do { g.turn=(g.turn+1)%g.players.length } while(current(g).bankrupt);beginTurn(g);
+ do { g.turn=(g.turn+1)%g.players.length } while(current(g).bankrupt);startOrSkipTurn(g);
 }
 function eliminate(g:Game, player:Player, receiver:Player | undefined, reason:string) {
  if(g.trade && (g.trade.from===player.id || g.trade.to===player.id)) { g.trade=undefined; log(g,'Сделка отменена: игрок выбыл'); }
@@ -276,6 +281,7 @@ export async function POST(req:Request){
   g.chanceResult=undefined;
   if(!card){log(g,`${p.name} подтверждает уже полученную награду «Шанса»`);next(g)}
   else if(card.reverseNextMove){p.reverseNextMove=true;log(g,`${p.name}: следующий ход будет в обратном направлении`);next(g)}
+  else if(card.skipNextTurn){p.skipNextTurn=true;log(g,`${p.name}: следующий ход будет пропущен`);next(g)}
   else if(card.movement==='nearestAvailableCompany'){
    const old=p.position;const steps=Array.from({length:tiles.length-1},(_,i)=>i+1).find(n=>{const index=(old+n)%tiles.length;return !!tiles[index].price&&!g.owners[index]});
    if(steps===undefined){log(g,`${p.name}: свободных компаний нет`);next(g)}

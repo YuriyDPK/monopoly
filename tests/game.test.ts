@@ -181,27 +181,27 @@ test('jackpot cell chooses numbers or roulette at the 50 percent boundary', asyn
   }
 });
 
-test('roulette follows the agreed percentages and pays each result exactly once', async t => {
+test('roulette gives every sector an equal range and pays each result exactly once', async t => {
   let now=10000, random=0;
   t.mock.method(Date,'now',()=>now);
   t.mock.method(Math,'random',()=>random);
   const expected=[
-    {id:'empty',from:0,to:30,money:14000},
-    {id:'refund',from:30,to:60,money:15000},
-    {id:'prize',from:60,to:75,money:16000},
-    {id:'extraRoll',from:75,to:85,money:15000},
-    {id:'start',from:85,to:90,money:17000},
-    {id:'jackpot',from:90,to:95,money:19000},
-    {id:'jail',from:95,to:100,money:14000},
+    {id:'empty',from:0,to:1,money:14000},
+    {id:'refund',from:1,to:2,money:15000},
+    {id:'prize',from:2,to:3,money:16000},
+    {id:'extraRoll',from:3,to:4,money:15000},
+    {id:'start',from:4,to:5,money:17000},
+    {id:'jackpot',from:5,to:6,money:19000},
+    {id:'jail',from:6,to:7,money:14000},
   ];
   for (const outcome of expected) {
-    for (let bucket=outcome.from;bucket<outcome.to;bucket++) {
+    for (const offset of [0,0.5,0.999999]) {
       const game=fixture();
       game.phase='roulette';game.players[0].position=20;
-      random=bucket/100;
+      random=(outcome.from+offset)/7;
       assert.equal((await act(game,'rouletteSpin',{outcome:'jackpot'})).status,200);
       assert.equal(game.phase,'rouletteResult');
-      assert.equal(game.rouletteResult?.outcome,outcome.id,`percentile ${bucket}`);
+      assert.equal(game.rouletteResult?.outcome,outcome.id,`sector ${outcome.from}, offset ${offset}`);
       assert.equal(game.players[0].money,outcome.money);
       assert.equal((await act(game,'rouletteSpin')).status,400);
       assert.equal((await act(game,'rouletteContinue')).status,400);
@@ -231,7 +231,7 @@ test('roulette saves a random stop within the chosen sector, independent of the 
   const positions:number[]=[];
   for(const [random,expected] of [[0,0.1],[0.25,0.3],[0.75,0.7],[0.999999,0.8999992]]) {
     const game=fixture();game.phase='roulette';game.players[0].position=20;
-    values=[0.8,random]; // Same extra-roll outcome, independently varied landing point.
+    values=[3.5/7,random]; // Same extra-roll outcome, independently varied landing point.
     assert.equal((await act(game,'rouletteSpin',{outcome:'jackpot',stopPosition:0.5})).status,200);
     assert.equal(game.rouletteResult?.outcome,'extraRoll');
     const position=game.rouletteResult?.stopPosition;
@@ -269,7 +269,7 @@ test('roulette requires the active player, completed movement, and a funded stak
 test('roulette extra roll stacks with doubles; jail cancels all extra rolls without a start reward', async t => {
   let now=10000;
   t.mock.method(Date,'now',()=>now);
-  const random=t.mock.method(Math,'random',()=>0.8);
+  const random=t.mock.method(Math,'random',()=>3.5/7);
   const game=fixture();game.phase='roulette';game.players[0].position=20;
   game.players[0].doubles=1;game.extraTurn='alice';
   await act(game,'rouletteSpin');now+=10000;
@@ -299,7 +299,7 @@ test('roulette extra roll stacks with doubles; jail cancels all extra rolls with
 test('bots spin and acknowledge roulette, and skip when their cash is below the stake', async t => {
   let now=10000;
   t.mock.method(Date,'now',()=>now);
-  t.mock.method(Math,'random',()=>0.65);
+  t.mock.method(Math,'random',()=>2.5/7);
   const callbacks:Array<()=>Promise<void>>=[];
   t.mock.method(globalThis,'setTimeout',(callback:()=>Promise<void>)=>{
     callbacks.push(callback);return {} as ReturnType<typeof setTimeout>;
@@ -437,21 +437,67 @@ test('a chance reward from a room created before the update can be acknowledged 
   assert.equal(game.phase,'roll');
 });
 
-test('chance has 14 distinct events, no immediate repeat, and portfolio-based amounts', t => {
+test('chance has 15 independent equally likely events and portfolio-based amounts', t => {
   const game=fixture(),player=game.players[0];
-  assert.equal(CHANCE_CARDS.length,14);
-  assert.equal(new Set(CHANCE_CARDS.map(card=>card.id)).size,14);
+  assert.equal(CHANCE_CARDS.length,15);
+  assert.equal(new Set(CHANCE_CARDS.map(card=>card.id)).size,15);
   const random=t.mock.method(Math,'random',()=>0);
+  for(let i=0;i<CHANCE_CARDS.length;i++) {
+    random.mock.mockImplementation(()=>(i+0.5)/CHANCE_CARDS.length);
+    assert.equal(drawChance(game,player).id,CHANCE_CARDS[i].id);
+  }
+  random.mock.mockImplementation(()=>0);
   const first=drawChance(game,player);
   game.lastChanceId=first.id;
-  assert.notEqual(drawChance(game,player).id,first.id);
+  assert.equal(drawChance(game,player).id,first.id);
   game.lastChanceId=undefined;
   game.owners={1:'alice',3:'alice',39:'bob'};
   game.levels={1:2,3:5,39:5};
-  random.mock.mockImplementation(()=>10.1/14);
+  random.mock.mockImplementation(()=>10.1/15);
   assert.equal(drawChance(game,player).amount,-1300);
-  random.mock.mockImplementation(()=>5.1/14);
+  random.mock.mockImplementation(()=>5.1/15);
   assert.equal(drawChance(game,player).amount,400);
+});
+
+test('chance skips exactly the next turn, advancing loan and mortgage counters without consuming a reverse move', async t => {
+  let now=10000; t.mock.method(Date,'now',()=>now);
+  const values=[0.34,0.51,14.5/15];t.mock.method(Math,'random',()=>values.shift()??0);
+  const game=fixture();const alice=game.players[0];
+  alice.loan={principal:5000,totalDue:5500,turnsLeft:4};alice.reverseNextMove=false;
+  game.owners[1]='alice';game.mortgaged=[1];game.mortgageTurns={1:4};
+  assert.equal((await act(game,'roll')).status,200);assert.equal(game.chanceResult?.skipNextTurn,true);
+  now+=10000;assert.equal((await act(game,'chanceContinue')).status,200);
+  assert.equal(game.turn,1);assert.equal(alice.skipNextTurn,true);
+  assert.equal(alice.loan?.turnsLeft,3);assert.equal(game.mortgageTurns[1],3);
+  alice.reverseNextMove=true;
+  game.phase='pay';game.debt={amount:1,reason:'test'};game.animationUntil=0;
+  assert.equal((await act(game,'pay')).status,200);
+  assert.equal(game.turn,1);assert.equal(alice.skipNextTurn,undefined);assert.equal(alice.reverseNextMove,true);
+  assert.equal(alice.turnsTaken,1);assert.equal(alice.loan?.turnsLeft,2);assert.equal(game.mortgageTurns[1],2);
+  assert.ok(game.log.some(line=>line.includes('Алиса пропускает ход')));
+  game.phase='pay';game.debt={amount:1,reason:'test'};
+  assert.equal((await act(game,'pay')).status,200);assert.equal(game.turn,0);assert.equal(game.phase,'roll');
+});
+
+test('a skip chance consumes an immediate extra turn once and keeps later bonus turns', async () => {
+  const game=fixture();game.phase='chanceResult';game.extraTurn='alice';game.bonusRolls=1;
+  game.chanceResult={id:'skip-turn',title:'Пауза',description:'',amount:0,playerId:'alice',skipNextTurn:true};
+  assert.equal((await act(game,'chanceContinue')).status,200);
+  assert.equal(game.turn,0);assert.equal(game.phase,'roll');assert.equal(game.players[0].skipNextTurn,undefined);
+  assert.ok(game.log.some(line=>line.includes('пропускает ход')));
+});
+
+test('skipping in jail preserves jail and defers a due loan until the next playable turn', async () => {
+  const game=fixture(),alice=game.players[0];alice.position=10;alice.jailed=true;alice.jailAttempts=1;
+  alice.skipNextTurn=true;alice.loan={principal:5000,totalDue:5500,turnsLeft:1};
+  game.turn=1;game.phase='pay';game.debt={amount:1,reason:'test'};
+  assert.equal((await act(game,'pay')).status,200);
+  assert.equal(game.turn,1);assert.equal(alice.skipNextTurn,undefined);assert.equal(alice.jailed,true);
+  assert.equal(alice.jailAttempts,1);assert.equal(alice.loan?.turnsLeft,0);
+  game.phase='pay';game.debt={amount:1,reason:'test'};
+  assert.equal((await act(game,'pay')).status,200);
+  assert.equal(game.turn,0);assert.equal(game.phase,'pay');assert.equal(game.debt?.kind,'loan');
+  assert.equal((await act(game,'pay')).status,200);assert.equal(game.phase,'jail');
 });
 
 test('a loan is available once per game, only on the borrower turn after movement', async () => {
@@ -717,7 +763,7 @@ test('chance moves to the next unowned company, crossing start and offering purc
   assert.equal((await act(game,'chanceContinue')).status,200);
   assert.equal(game.players[0].position,1);assert.equal(game.players[0].money,7000);
   assert.equal(game.phase,'buy');assert.deepEqual(game.move,{playerId:'alice',steps:3,noDice:true});
-  assert.equal(game.animationUntil,now+3*240);
+  assert.equal(game.animationUntil,now+3*190);
   assert.equal((await act(game,'chanceContinue')).status,400);
   now+=10000;assert.equal((await act(game,'buy')).status,200);
   assert.equal(game.owners[1],'alice');assert.equal(game.players[0].money,6400);
@@ -745,7 +791,7 @@ test('each player counts only their own dice rolls, including a jail attempt', a
 
 test('a reverse chance card affects only the next roll and then restores normal movement', async t => {
   let now=10000;t.mock.method(Date,'now',()=>now);
-  const rolls=[0.34,0.51,13.1/14,0,0.2,0,0.2];t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const rolls=[0.34,0.51,13.1/15,0,0.2,0,0.2];t.mock.method(Math,'random',()=>rolls.shift()??0);
   const game=fixture();
   await act(game,'roll');assert.equal(game.players[0].position,7);
   assert.equal(game.chanceResult?.id,'reverse-direction');assert.equal(game.chanceResult?.reverseNextMove,true);

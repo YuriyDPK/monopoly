@@ -3,7 +3,7 @@ import type { Duel } from './duel';
 import type { Trap, TrapResult, TurnSnapshot } from './traps';
 
 export const DICE_ROLL_MS = 480;
-export const TOKEN_STEP_MS = 240;
+export const TOKEN_STEP_MS = 190;
 export type Tile = { name: string; price?: number; kind?: 'chance' | 'tax' | 'diamond' | 'jail' | 'start' | 'jackpot'; group?: string };
 export const tiles: Tile[] = [
   {name:'Старт',kind:'start'}, {name:'Chanel',price:600,group:'pink'}, {name:'Шанс',kind:'chance'}, {name:'Balenciaga',price:600,group:'pink'}, {name:'Деньги',kind:'tax'}, {name:'Mercedes-Benz',price:2000,group:'red'}, {name:'Adidas',price:1000,group:'gold'}, {name:'Шанс',kind:'chance'}, {name:'Puma',price:1000,group:'gold'}, {name:'Lacoste',price:1200,group:'gold'},
@@ -57,8 +57,8 @@ export const ownsFullGroup = (owners:Record<number,string>, index:number) => {co
 export const effectivePropertyLevel = (owners:Record<number,string>, levels:Record<number,number>|undefined, index:number) => ownsFullGroup(owners,index)?1+(levels?.[index]||0):0;
 export const groupHasMortgage = (mortgaged:number[],index:number) => groupTiles(index).some(i=>mortgaged.includes(i));
 export type Loan = {principal:number; totalDue:number; turnsLeft:number};
-export type ChanceResult = {id:string; title:string; description:string; amount:number; playerId:string; movement?:'nearestAvailableCompany'; reverseNextMove?:boolean};
-export type Player = {id:string; name:string; color:string; money:number; position:number; turnsTaken?:number; reverseNextMove?:boolean; bot?:boolean; bankrupt?:boolean; jailed?:boolean; jailAttempts?:number; doubles?:number; loan?:Loan; loanUsed?:boolean};
+export type ChanceResult = {id:string; title:string; description:string; amount:number; playerId:string; movement?:'nearestAvailableCompany'; reverseNextMove?:boolean; skipNextTurn?:boolean};
+export type Player = {id:string; name:string; color:string; money:number; position:number; turnsTaken?:number; reverseNextMove?:boolean; skipNextTurn?:boolean; bot?:boolean; bankrupt?:boolean; jailed?:boolean; jailAttempts?:number; doubles?:number; loan?:Loan; loanUsed?:boolean};
 export type Trade = {id?:string; counterOf?:string; from:string; to:string; give:number[]; take:number[]; giveCash:number; takeCash:number};
 export type Game = {code:string; players:Player[]; host:string; started:boolean; turn:number; phase:'lobby'|'roll'|'buy'|'pay'|'auction'|'jackpot'|'jackpotResult'|'roulette'|'rouletteResult'|'duelInvite'|'duelResult'|'chanceResult'|'jail'|'finished'; owners:Record<number,string>; levels?:Record<number,number>; turnSerial?:number; lastUpgradeTurn?:Record<string,number>; duel?:Duel; lastDuelTurn?:number; completedTurns?:TurnSnapshot; trapPlacements?:Record<string,TurnSnapshot>; traps?:Trap[]; myTrap?:{tile:number; amount:number; roundsLeft:number}; trapCooldown?:number; trapResult?:TrapResult; mortgaged:number[]; mortgageTurns?:Record<number,number>; dice:number[]; debt?:{amount:number; to?:string; reason:string; kind?:'diamond'|'chance'|'loan'|'trap'; afterPayment?:'releaseRoll'|'releaseEnd'|'resumeTurn'; moveDirection?:1|-1}; auction?:{tile:number; bid:number; bidder?:string; passed:string[]; seller?:string}; move?:{playerId:string; steps:number; direction?:1|-1; jailTransfer?:boolean; noDice?:boolean; stepMs?:number}; extraTurn?:string; bonusRolls?:number; rollSeq?:number; jackpotResult?:{playerId:string; choice:number[]; result:number; payout:number}; rouletteResult?:{playerId:string; outcome:RouletteOutcomeId; stopPosition?:number}; chanceResult?:ChanceResult; lastChanceId?:string; trade?:Trade; log:string[]; winner?:string; animationUntil?:number; revision:number};
 export const colors=['#ed515b','#35aeeb','#95ca50','#b880e7','#f7b94a','#ec7fa6'];
