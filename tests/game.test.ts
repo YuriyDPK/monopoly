@@ -186,12 +186,13 @@ test('roulette follows the agreed percentages and pays each result exactly once'
   ];
   for (const outcome of expected) {
     for (let bucket=outcome.from;bucket<outcome.to;bucket++) {
+     for (const offset of [0,0.999999]) {
       const game=fixture();
       game.phase='roulette';game.players[0].position=20;
-      random=bucket/100;
+      random=(bucket+offset)/100;
       assert.equal((await act(game,'rouletteSpin',{outcome:'jackpot'})).status,200);
       assert.equal(game.phase,'rouletteResult');
-      assert.equal(game.rouletteResult?.outcome,outcome.id,`percentile ${bucket}`);
+      assert.equal(game.rouletteResult?.outcome,outcome.id,`percentile ${bucket}, offset ${offset}`);
       assert.equal(game.players[0].money,outcome.money);
       assert.equal((await act(game,'rouletteSpin')).status,400);
       assert.equal((await act(game,'rouletteContinue')).status,400);
@@ -210,6 +211,7 @@ test('roulette follows the agreed percentages and pays each result exactly once'
       assert.equal(game.players[0].position,outcome.id==='start'?0:outcome.id==='jail'?10:20);
       assert.equal(!!game.players[0].jailed,outcome.id==='jail');
       assert.ok(game.log.some(line=>line.includes('рулетка')));
+     }
     }
   }
 });
