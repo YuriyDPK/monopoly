@@ -12,7 +12,7 @@ test('roulette: no icons, wheel enlarged by 10 percent from its reduced size, sh
   const errors = [];
   const actions = [];
   const pages = [];
-  let spinRandom = 3.5/7;
+  let spinRandom = 0.8;
   let landingRandom = 0.05;
   let modeRandom = 0.5;
   let failNextSpin = false;
@@ -141,9 +141,9 @@ test('roulette: no icons, wheel enlarged by 10 percent from its reduced size, sh
     };
     await alice.setViewportSize({width:390,height:844});
     for (const scenario of [
-      {title:'Дополнительный бросок',random:3.5/7,landing:0.95,money:15000,position:20,extra:true},
-      {title:'Джекпот',random:5.5/7,landing:0.65,money:19000,position:20},
-      {title:'На старт',random:4.5/7,landing:0.15,money:17000,position:0,point:['7.1%','7.1%']},
+      {title:'Дополнительный бросок',random:0.8,landing:0.95,money:15000,position:20,extra:true},
+      {title:'Джекпот',random:0.92,landing:0.65,money:19000,position:20},
+      {title:'На старт',random:0.87,landing:0.15,money:17000,position:0,point:['7.1%','7.1%']},
       {title:'В тюрьму',random:0.95,landing:0.85,money:14000,position:10,point:['92.9%','7.1%']},
     ]) {
       await reset();spinRandom=scenario.random;landingRandom=scenario.landing;

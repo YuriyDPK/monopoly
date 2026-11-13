@@ -181,27 +181,28 @@ test('jackpot cell chooses numbers or roulette at the 50 percent boundary', asyn
   }
 });
 
-test('roulette gives every sector an equal range and pays each result exactly once', async t => {
+test('roulette follows the agreed percentages and pays each result exactly once', async t => {
   let now=10000, random=0;
   t.mock.method(Date,'now',()=>now);
   t.mock.method(Math,'random',()=>random);
   const expected=[
-    {id:'empty',from:0,to:1,money:14000},
-    {id:'refund',from:1,to:2,money:15000},
-    {id:'prize',from:2,to:3,money:16000},
-    {id:'extraRoll',from:3,to:4,money:15000},
-    {id:'start',from:4,to:5,money:17000},
-    {id:'jackpot',from:5,to:6,money:19000},
-    {id:'jail',from:6,to:7,money:14000},
+    {id:'empty',from:0,to:30,money:14000},
+    {id:'refund',from:30,to:60,money:15000},
+    {id:'prize',from:60,to:75,money:16000},
+    {id:'extraRoll',from:75,to:85,money:15000},
+    {id:'start',from:85,to:90,money:17000},
+    {id:'jackpot',from:90,to:95,money:19000},
+    {id:'jail',from:95,to:100,money:14000},
   ];
   for (const outcome of expected) {
-    for (const offset of [0,0.5,0.999999]) {
+    for (let bucket=outcome.from;bucket<outcome.to;bucket++) {
+     for (const offset of [0,0.999999]) {
       const game=fixture();
       game.phase='roulette';game.players[0].position=20;
-      random=(outcome.from+offset)/7;
+      random=(bucket+offset)/100;
       assert.equal((await act(game,'rouletteSpin',{outcome:'jackpot'})).status,200);
       assert.equal(game.phase,'rouletteResult');
-      assert.equal(game.rouletteResult?.outcome,outcome.id,`sector ${outcome.from}, offset ${offset}`);
+      assert.equal(game.rouletteResult?.outcome,outcome.id,`percentile ${bucket}, offset ${offset}`);
       assert.equal(game.players[0].money,outcome.money);
       assert.equal((await act(game,'rouletteSpin')).status,400);
       assert.equal((await act(game,'rouletteContinue')).status,400);
@@ -220,6 +221,7 @@ test('roulette gives every sector an equal range and pays each result exactly on
       assert.equal(game.players[0].position,outcome.id==='start'?0:outcome.id==='jail'?10:20);
       assert.equal(!!game.players[0].jailed,outcome.id==='jail');
       assert.ok(game.log.some(line=>line.includes('рулетка')));
+     }
     }
   }
 });
@@ -231,7 +233,7 @@ test('roulette saves a random stop within the chosen sector, independent of the 
   const positions:number[]=[];
   for(const [random,expected] of [[0,0.1],[0.25,0.3],[0.75,0.7],[0.999999,0.8999992]]) {
     const game=fixture();game.phase='roulette';game.players[0].position=20;
-    values=[3.5/7,random]; // Same extra-roll outcome, independently varied landing point.
+    values=[0.8,random]; // Same extra-roll outcome, independently varied landing point.
     assert.equal((await act(game,'rouletteSpin',{outcome:'jackpot',stopPosition:0.5})).status,200);
     assert.equal(game.rouletteResult?.outcome,'extraRoll');
     const position=game.rouletteResult?.stopPosition;
@@ -269,7 +271,7 @@ test('roulette requires the active player, completed movement, and a funded stak
 test('roulette extra roll stacks with doubles; jail cancels all extra rolls without a start reward', async t => {
   let now=10000;
   t.mock.method(Date,'now',()=>now);
-  const random=t.mock.method(Math,'random',()=>3.5/7);
+  const random=t.mock.method(Math,'random',()=>0.8);
   const game=fixture();game.phase='roulette';game.players[0].position=20;
   game.players[0].doubles=1;game.extraTurn='alice';
   await act(game,'rouletteSpin');now+=10000;
@@ -299,7 +301,7 @@ test('roulette extra roll stacks with doubles; jail cancels all extra rolls with
 test('bots spin and acknowledge roulette, and skip when their cash is below the stake', async t => {
   let now=10000;
   t.mock.method(Date,'now',()=>now);
-  t.mock.method(Math,'random',()=>2.5/7);
+  t.mock.method(Math,'random',()=>0.65);
   const callbacks:Array<()=>Promise<void>>=[];
   t.mock.method(globalThis,'setTimeout',(callback:()=>Promise<void>)=>{
     callbacks.push(callback);return {} as ReturnType<typeof setTimeout>;
