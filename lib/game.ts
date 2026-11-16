@@ -1,3 +1,4 @@
+import type { GameRules, GameMode } from './rules';
 import type { RouletteOutcomeId } from './roulette';
 import type { Duel } from './duel';
 import type { Trap, TrapResult, TurnSnapshot } from './traps';
@@ -21,9 +22,16 @@ export const LOAN_TOTAL_DUE = 5500;
 export const LOAN_TURNS = 15;
 export const CAR_COMPANIES = [5,15,25,35] as const;
 export const isCarCompany = (i:number) => (CAR_COMPANIES as readonly number[]).includes(i);
-export const carRent = (owners:Record<number,string>, i:number) => {const owner=owners[i];if(!owner)return 250;const count=CAR_COMPANIES.filter(index=>owners[index]===owner).length;return [250,500,1000,2000][Math.max(0,count-1)]};
+export const CAR_RENTS = [250, 500, 1000, 2000] as const;
+export function carRent(owners: Record<number,string>, i: number, rules?: GameRules) {
+  const rents = rules?.carRents ?? CAR_RENTS;
+  const count = owners[i] ? CAR_COMPANIES.filter(index => owners[index] === owners[i]).length : 0;
+  return rents[Math.max(0, count - 1)];
+}
 export const isDiceRent = (i:number) => i === 12 || i === 28;
-export const diceRentFactor = (owners:Record<number,string>, i:number) => owners[i] && owners[12] === owners[i] && owners[28] === owners[i] ? 250 : 100;
+export const DICE_RENT_FACTORS = [100, 250] as const;
+export const diceRentFactor = (owners: Record<number,string>, i: number, rules?: GameRules) =>
+  (rules?.diceRentFactors ?? DICE_RENT_FACTORS)[owners[i] && owners[12] === owners[i] && owners[28] === owners[i] ? 1 : 0];
 // Base rent, full street, then one through five improvements. Values are in k.
 export const PROPERTY_RENTS: Readonly<Record<number, readonly number[]>> = {
   1: [20, 60, 100, 300, 900, 1600, 2500],
@@ -49,31 +57,45 @@ export const PROPERTY_RENTS: Readonly<Record<number, readonly number[]>> = {
   37: [350, 1050, 1750, 5000, 11000, 13000, 15000],
   39: [500, 1500, 2000, 6000, 14000, 17000, 20000],
 };
-export const propertyRent = (index:number, level:number) => PROPERTY_RENTS[index]?.[Math.max(0, Math.min(Math.floor(level), MAX_PROPERTY_LEVEL + 1))] ?? 0;
+export const propertyRent = (index:number, level:number, rules?: GameRules) => (rules?.propertyRents ?? PROPERTY_RENTS)[index]?.[Math.max(0, Math.min(Math.floor(level), MAX_PROPERTY_LEVEL + 1))] ?? 0;
 const UPGRADE_COSTS: Readonly<Record<string, number>> = {pink:500,gold:500,teal:1000,blue:1000,green:1500,cyan:1500,purple:2000,slate:2000};
-export const propertyUpgradeCost = (index:number, upgrades=0) => upgrades >= 0 ? UPGRADE_COSTS[tiles[index]?.group ?? ''] ?? 0 : 0;
+export const propertyUpgradeCost = (index:number, upgrades=0, rules?: GameRules) =>
+  upgrades >= 0 ? rules?.upgradeCosts[index]?.[upgrades] ?? UPGRADE_COSTS[tiles[index]?.group ?? ''] ?? 0 : 0;
 export const groupTiles = (index:number) => {const group=tiles[index]?.group;return group?tiles.flatMap((tile,i)=>tile.price&&tile.group===group&&!isCarCompany(i)&&!isDiceRent(i)?[i]:[]):[]};
 export const ownsFullGroup = (owners:Record<number,string>, index:number) => {const owner=owners[index],group=groupTiles(index);return !!owner&&group.length>0&&group.every(i=>owners[i]===owner)};
 export const effectivePropertyLevel = (owners:Record<number,string>, levels:Record<number,number>|undefined, index:number) => ownsFullGroup(owners,index)?1+(levels?.[index]||0):0;
 export const groupHasMortgage = (mortgaged:number[],index:number) => groupTiles(index).some(i=>mortgaged.includes(i));
 export type Loan = {principal:number; totalDue:number; turnsLeft:number};
-export type ChanceResult = {id:string; title:string; description:string; amount:number; playerId:string; movement?:'nearestAvailableCompany'; reverseNextMove?:boolean; skipNextTurn?:boolean};
+export type ChanceResult = {id:string; title:string; description:string; amount:number; playerId:string; movement?:'nearestAvailableCompany'|'randomAvailableCompany'; destination?:number; effect?:'swapPositions'|'reverseAll'|'giftProperty'; targetPlayerId?:string; reverseNextMove?:boolean; skipNextTurn?:boolean};
 export type Player = {id:string; name:string; color:string; money:number; position:number; turnsTaken?:number; lapsCompleted?:number; reverseNextMove?:boolean; skipNextTurn?:boolean; bot?:boolean; bankrupt?:boolean; jailed?:boolean; jailAttempts?:number; doubles?:number; loan?:Loan; loanUsed?:boolean};
 export type Trade = {id?:string; counterOf?:string; from:string; to:string; give:number[]; take:number[]; giveCash:number; takeCash:number};
-export type Game = {code:string; players:Player[]; host:string; started:boolean; turn:number; phase:'lobby'|'roll'|'buy'|'pay'|'auction'|'jackpot'|'jackpotResult'|'roulette'|'rouletteResult'|'duelInvite'|'duelResult'|'chanceResult'|'jail'|'finished'; owners:Record<number,string>; levels?:Record<number,number>; turnSerial?:number; lastUpgradeTurn?:Record<string,number>; duel?:Duel; lastDuelTurn?:number; completedTurns?:TurnSnapshot; tileVisits?:Record<number,number>; trapPlacements?:Record<string,TurnSnapshot>; traps?:Trap[]; myTrap?:{tile:number; amount:number; roundsLeft:number}; trapCooldown?:number; trapResult?:TrapResult; mortgaged:number[]; mortgageTurns?:Record<number,number>; dice:number[]; debt?:{amount:number; to?:string; reason:string; kind?:'diamond'|'chance'|'loan'|'trap'; afterPayment?:'releaseRoll'|'releaseEnd'|'resumeTurn'; moveDirection?:1|-1}; auction?:{tile:number; bid:number; bidder?:string; passed:string[]; seller?:string}; move?:{playerId:string; steps:number; direction?:1|-1; jailTransfer?:boolean; noDice?:boolean; stepMs?:number}; extraTurn?:string; bonusRolls?:number; rollSeq?:number; jackpotResult?:{playerId:string; choice:number[]; result:number; payout:number}; rouletteResult?:{playerId:string; outcome:RouletteOutcomeId; stopPosition?:number}; chanceResult?:ChanceResult; lastChanceId?:string; trade?:Trade; log:string[]; winner?:string; animationUntil?:number; revision:number};
+export type Game = {mode?:GameMode; rules?:GameRules; code:string; players:Player[]; host:string; started:boolean; turn:number; phase:'lobby'|'roll'|'buy'|'pay'|'auction'|'jackpot'|'jackpotResult'|'roulette'|'rouletteResult'|'duelInvite'|'duelResult'|'chanceResult'|'jail'|'finished'; owners:Record<number,string>; levels?:Record<number,number>; turnSerial?:number; lastUpgradeTurn?:Record<string,number>; duel?:Duel; lastDuelTurn?:number; completedTurns?:TurnSnapshot; tileVisits?:Record<number,number>; trapPlacements?:Record<string,TurnSnapshot>; traps?:Trap[]; myTrap?:{tile:number; amount:number; roundsLeft:number}; trapCooldown?:number; trapResult?:TrapResult; mortgaged:number[]; mortgageTurns?:Record<number,number>; dice:number[]; debt?:{amount:number; to?:string; reason:string; kind?:'diamond'|'chance'|'loan'|'trap'; afterPayment?:'releaseRoll'|'releaseEnd'|'resumeTurn'; moveDirection?:1|-1}; auction?:{tile:number; bid:number; bidder?:string; passed:string[]; seller?:string}; move?:{playerId:string; steps:number; direction?:1|-1; jailTransfer?:boolean; noDice?:boolean; stepMs?:number}; extraTurn?:string; bonusRolls?:number; rollSeq?:number; jackpotResult?:{playerId:string; choice:number[]; result:number; payout:number}; rouletteResult?:{playerId:string; outcome:RouletteOutcomeId; stopPosition?:number}; chanceResult?:ChanceResult; lastChanceId?:string; trade?:Trade; log:string[]; winner?:string; animationUntil?:number; revision:number};
 export const colors=['#ed515b','#35aeeb','#95ca50','#b880e7','#f7b94a','#ec7fa6'];
 export const money=(n:number)=>`${n.toLocaleString('en-US')}k`;
+
+export const mortgageValue = (price: number, rules?: GameRules) => Math.floor(price * (rules?.mortgagePercent ?? 50) / 100);
+export const redemptionCost = (price: number, rules?: GameRules) => Math.ceil(price * (rules?.redemptionPercent ?? 55) / 100);
+export const upgradeResaleValue = (cost: number, rules?: GameRules) => Math.floor(cost * (rules?.upgradeResalePercent ?? 50) / 100);
+
+// Upgrade prices may differ at each level in a full-random game.
+function upgradeValue(game: Game, tile: number, resale: boolean) {
+  let total = 0;
+  for (let level = 0; level < (game.levels?.[tile] ?? 0); level++) {
+    const cost = propertyUpgradeCost(tile, level, game.rules);
+    total += resale ? upgradeResaleValue(cost, game.rules) : cost;
+  }
+  return total;
+}
 
 // Net capital uses purchase prices; a mortgage and an outstanding loan are liabilities.
 export function playerCapital(game: Game, player: Player): number {
   return Object.keys(game.owners).map(Number).filter(i => game.owners[i] === player.id).reduce((total, i) => {
-    const price = tiles[i]?.price ?? 0;
-    const upgrades = game.levels?.[i] ?? 0;
-    return total + price - (game.mortgaged.includes(i) ? Math.floor(price / 2) : 0) + upgrades * propertyUpgradeCost(i);
+    const price = (game.rules?.tiles ?? tiles)[i]?.price ?? 0;
+    return total + price - (game.mortgaged.includes(i) ? mortgageValue(price, game.rules) : 0) + upgradeValue(game, i, false);
   }, player.money - (player.loan?.totalDue ?? 0));
 }
 // Amount obtainable immediately by selling improvements and mortgaging property.
 export function liquidFunds(game: Game, player: Player): number {
   return Object.keys(game.owners).map(Number).filter(i => game.owners[i] === player.id && !game.mortgaged.includes(i)).reduce((total, i) =>
-    total + Math.floor((tiles[i]?.price ?? 0) / 2) + (game.levels?.[i] ?? 0) * Math.floor(propertyUpgradeCost(i) / 2), player.money);
+    total + mortgageValue((game.rules?.tiles ?? tiles)[i]?.price ?? 0, game.rules) + upgradeValue(game, i, true), player.money);
 }

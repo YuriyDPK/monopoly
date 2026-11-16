@@ -26,11 +26,8 @@ async function act(game: Game, action: string, extra: Record<string,unknown> = {
   return {status:response.status,body:await response.json()};
 }
 
-test('only the nickname пена starts with 30000 as host or guest, and reconnecting preserves cash', async () => {
-  for (const [hostName, guestName, hostCash, guestCash] of [
-    ['  пЕнА  ', 'пенал', 30000, 15000],
-    ['', 'пена', 15000, 30000],
-  ] as const) {
+test('classic starting cash is the same for every nickname and reconnecting preserves cash', async () => {
+  for (const [hostName, guestName] of [['  пЕнА  ', 'пенал'], ['', 'пена']]) {
     const created = await POST(new Request('http://localhost/api/game', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -41,12 +38,12 @@ test('only the nickname пена starts with 30000 as host or guest, and reconne
     assert.equal((await act(room, 'join', { name: guestName }, 'guest')).status, 200);
     const started = await act(room, 'start');
     assert.equal(started.status, 200);
-    assert.deepEqual(started.body.players.map((p: Game['players'][number]) => p.money), [hostCash, guestCash]);
+    assert.deepEqual(started.body.players.map((p: Game['players'][number]) => p.money), [15000, 15000]);
 
     assert.equal((await act(room, 'loanTake')).status, 200);
     const rejoined = await act(room, 'join', { name: 'пена' }, 'host');
     assert.equal(rejoined.status, 200);
-    assert.equal(rejoined.body.players[0].money, hostCash + LOAN_PRINCIPAL);
+    assert.equal(rejoined.body.players[0].money, 15000 + LOAN_PRINCIPAL);
   }
 });
 

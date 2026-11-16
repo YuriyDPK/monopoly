@@ -1,13 +1,14 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { JACKPOT_BET, money, type Game } from '@/lib/game';
-import { ROULETTE_OUTCOMES, ROULETTE_SPIN_MS } from '@/lib/roulette';
+import { money, type Game } from '@/lib/game';
+import { ROULETTE_SPIN_MS } from '@/lib/roulette';
+import { rulesOf } from '@/lib/rules';
 import styles from './Roulette.module.css';
 
-const sectorAngle = 360 / ROULETTE_OUTCOMES.length;
-const sectors = ROULETTE_OUTCOMES.map((outcome,index) => ({...outcome,start:index*sectorAngle,end:(index+1)*sectorAngle,middle:(index+0.5)*sectorAngle}));
-const background = `conic-gradient(${sectors.map(sector => `${sector.color} ${sector.start}deg ${sector.end}deg`).join(',')})`;
-
 export function Roulette({game,myTurn,moving,onAction}:{game:Game;myTurn:boolean;moving:boolean;onAction:(action:string)=>Promise<Game|null>}) {
+  const rules = rulesOf(game);
+  const sectorAngle = 360 / rules.rouletteOutcomes.length;
+  const sectors = rules.rouletteOutcomes.map((outcome,index) => ({...outcome,start:index*sectorAngle,end:(index+1)*sectorAngle,middle:(index+0.5)*sectorAngle}));
+  const background = `conic-gradient(${sectors.map(sector => `${sector.color} ${sector.start}deg ${sector.end}deg`).join(',')})`;
   const result = sectors.find(sector => sector.id === game.rouletteResult?.outcome);
   const stopAngle = result ? result.start+sectorAngle*(game.rouletteResult?.stopPosition??0.5) : 0;
   const showingResult = game.phase === 'rouletteResult';
@@ -26,9 +27,9 @@ export function Roulette({game,myTurn,moving,onAction}:{game:Game;myTurn:boolean
     finally { setPending(false); }
   };
   const player = game.players[game.turn];
-  const skip = !showingResult&&player.money<JACKPOT_BET;
+  const skip = !showingResult&&player.money<rules.rouletteBet;
   const buttonAction = showingResult?'rouletteContinue':skip?'rouletteSkip':'rouletteSpin';
-  const buttonLabel = showingResult?(revealed?'Продолжить':'Крутим…'):skip?'Пропустить':`Крутить за ${money(JACKPOT_BET)}`;
+  const buttonLabel = showingResult?(revealed?'Продолжить':'Крутим…'):skip?'Пропустить':`Крутить за ${money(rules.rouletteBet)}`;
 
   return <section className={styles.panel} aria-label="Рулетка">
       <div className={styles.wheelWrap}>

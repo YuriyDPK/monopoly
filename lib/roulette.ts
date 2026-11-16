@@ -12,11 +12,13 @@ export const ROULETTE_OUTCOMES = [
 
 export type RouletteOutcomeId = typeof ROULETTE_OUTCOMES[number]['id'];
 
-export function drawRoulette() {
+export type RouletteOutcome = { id: RouletteOutcomeId; title: string; description: string; chance: number; payout: number; color: string; symbol: string };
+
+export function drawRoulette(outcomes: readonly RouletteOutcome[] = ROULETTE_OUTCOMES) {
   let ticket = Math.floor(Math.random() * 100);
-  for (const outcome of ROULETTE_OUTCOMES) {
+  for (const outcome of outcomes) {
     if (ticket < outcome.chance) return outcome;
     ticket -= outcome.chance;
   }
-  return ROULETTE_OUTCOMES[ROULETTE_OUTCOMES.length - 1];
+  return outcomes[outcomes.length - 1];
 }

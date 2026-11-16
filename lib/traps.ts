@@ -3,7 +3,7 @@ import type { Game } from './game';
 export const TRAP_AMOUNTS = [500, 1000, 2000, 5000] as const;
 export const TRAP_LIFETIME_ROUNDS = 10;
 export const TRAP_COOLDOWN_ROUNDS = 10;
-export const trapCost = (amount: number) => amount * 2 / 5;
+export const trapCost = (amount: number, percent = 40) => Math.ceil(amount * percent / 100);
 
 export type TurnSnapshot = Record<string, number>;
 export type Trap = {id: string; ownerId: string; tile: number; amount: number; cost: number; placedAfter: TurnSnapshot};

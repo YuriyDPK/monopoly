@@ -28,3 +28,5 @@
 .balance { display: flex; justify-content: space-between; border-top: 1px solid #ffffff14; padding-top: 16px; color: #abb5a1; font-size: 12px; }
 .balance strong { color: #eff4e9; }
 @media (max-width: 600px) { .dialog { padding: 24px 20px; } .dialog h2 { font-size: 23px; } .bank { margin-top: 14px; } }
+
+.effect { margin: 18px 0; color: #d0f58b; font-size: 23px; font-weight: 700; }

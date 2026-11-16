@@ -11,5 +11,5 @@ export type Duel = {
   winner?: string;
 };
 
-export const maxDuelBet = (firstBalance: number, secondBalance: number) =>
-  Math.max(0, Math.floor(Math.min(firstBalance, secondBalance) / DUEL_BET_STEP) * DUEL_BET_STEP);
+export const maxDuelBet = (firstBalance: number, secondBalance: number, step = DUEL_BET_STEP) =>
+  Math.max(0, Math.floor(Math.min(firstBalance, secondBalance) / step) * step);

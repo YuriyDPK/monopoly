@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { DUEL_BET_STEP, DUEL_MIN_BET, maxDuelBet } from '@/lib/duel';
+import { maxDuelBet } from '@/lib/duel';
 import { money, type Game } from '@/lib/game';
+import { rulesOf } from '@/lib/rules';
 import styles from './Duel.module.css';
 
 type Action = (action: string, extra?: Record<string, unknown>) => Promise<Game | null>;
@@ -10,11 +11,12 @@ export function DuelSetup({game,playerId,opponentId,onAction,onClose}:{game:Game
   const opponents=game.players.filter(p=>p.id!==playerId&&!p.bankrupt);
   const [target,setTarget]=useState(opponentId);
   const opponent=opponents.find(p=>p.id===target);
-  const maximum=maxDuelBet(player.money,opponent?.money||0);
-  const [bet,setBet]=useState(String(Math.max(DUEL_MIN_BET,Math.min(500,maximum))));
+  const step=rulesOf(game).duelStep;
+  const maximum=maxDuelBet(player.money,opponent?.money||0,step);
+  const [bet,setBet]=useState(String(Math.max(step,Math.min(5*step,maximum))));
   const [pending,setPending]=useState(false);
   const amount=Number(bet);
-  const valid=Number.isSafeInteger(amount)&&amount>=DUEL_MIN_BET&&amount%DUEL_BET_STEP===0&&amount<=maximum;
+  const valid=Number.isSafeInteger(amount)&&amount>=step&&amount%step===0&&amount<=maximum;
   async function challenge() {
     if(pending||!valid)return;
     setPending(true);
@@ -28,19 +30,19 @@ export function DuelSetup({game,playerId,opponentId,onAction,onClose}:{game:Game
       <select aria-label="Соперник дуэли" value={target} disabled={pending} onChange={event=>{
         const next=opponents.find(p=>p.id===event.target.value)!;
         setTarget(next.id);
-        setBet(String(Math.max(DUEL_MIN_BET,Math.min(Number(bet)||DUEL_MIN_BET,maxDuelBet(player.money,next.money)))));
+        setBet(String(Math.max(step,Math.min(Number(bet)||step,maxDuelBet(player.money,next.money,step)))));
       }}>
         {opponents.map(p=><option key={p.id} value={p.id}>{p.name}{p.bot?' · бот':''}</option>)}
       </select>
     </label>
     <label className={styles.stake}>Ставка с каждого, k
-      <input aria-label="Ставка дуэли" type="number" min={DUEL_MIN_BET} max={maximum} step={DUEL_BET_STEP} value={bet} disabled={pending} onChange={event=>setBet(event.target.value)} />
+      <input aria-label="Ставка дуэли" type="number" min={step} max={maximum} step={step} value={bet} disabled={pending} onChange={event=>setBet(event.target.value)} />
     </label>
     <div className={styles.range}>
-      <input aria-label="Ставка дуэли ползунок" type="range" min={DUEL_MIN_BET} max={Math.max(DUEL_MIN_BET,maximum)} step={DUEL_BET_STEP} value={Math.max(DUEL_MIN_BET,Math.min(maximum,Math.floor((amount||0)/DUEL_BET_STEP)*DUEL_BET_STEP))} disabled={pending||maximum<DUEL_MIN_BET} onChange={event=>setBet(event.target.value)} />
-      <div><span>{money(DUEL_MIN_BET)}</span><span>Максимум {money(maximum)}</span></div>
+      <input aria-label="Ставка дуэли ползунок" type="range" min={step} max={Math.max(step,maximum)} step={step} value={Math.max(step,Math.min(maximum,Math.floor((amount||0)/step)*step))} disabled={pending||maximum<step} onChange={event=>setBet(event.target.value)} />
+      <div><span>{money(step)}</span><span>Максимум {money(maximum)}</span></div>
     </div>
-    <p className={styles.note}>{maximum<DUEL_MIN_BET?'У обоих игроков должно быть хотя бы 100k.':`Банк ${money(valid?amount*2:0)}. При ничьей ставки вернутся.`}</p>
+    <p className={styles.note}>{maximum<step?`У обоих игроков должно быть хотя бы ${money(step)}.`:`Банк ${money(valid?amount*2:0)}. При ничьей ставки вернутся.`}</p>
     <div className={styles.actions}>
       <button className="primary" disabled={pending||!valid} onClick={()=>void challenge()}>Вызвать на дуэль</button>
       <button className="secondary" disabled={pending} onClick={onClose}>Назад</button>

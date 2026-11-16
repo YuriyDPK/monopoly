@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react';
-import { TRAP_AMOUNTS, TRAP_LIFETIME_ROUNDS, trapCost } from '@/lib/traps';
+import { trapCost } from '@/lib/traps';
 import { liquidFunds, money, tiles, type Game } from '@/lib/game';
+import { rulesOf } from '@/lib/rules';
 import styles from './Traps.module.css';
 
 type Action = (action: string, extra?: Record<string, unknown>) => Promise<Game | null>;
@@ -13,10 +14,11 @@ export function TrapMarker({trap,bounds}:{trap:NonNullable<Game['myTrap']>;bound
 }
 
 export function TrapSetup({game,playerId,tile,available,onAction,onCancel,onPlaced}:{game:Game;playerId:string;tile:number;available:boolean;onAction:Action;onCancel:()=>void;onPlaced:()=>void}) {
-  const [amount,setAmount]=useState<number>(500);
+  const rules=rulesOf(game);
+  const [amount,setAmount]=useState(rules.trapAmounts[0]);
   const [pending,setPending]=useState(false);
   const player=game.players.find(p=>p.id===playerId)!;
-  const cost=trapCost(amount);
+  const cost=trapCost(amount,rules.trapCostPercent);
   async function place() {
     if(pending||!available||player.money<cost)return;
     setPending(true);
@@ -26,12 +28,12 @@ export function TrapSetup({game,playerId,tile,available,onAction,onCancel,onPlac
   return <section className={styles.setup} aria-label="Установка ловушки">
     <fieldset disabled={pending}>
       <legend>Штраф ловушки</legend>
-      <div className={styles.choices}>{TRAP_AMOUNTS.map(value=><label key={value} className={amount===value?styles.chosen:''}>
-        <input type="radio" name="trap-amount" value={value} checked={amount===value} disabled={player.money<trapCost(value)} onChange={()=>setAmount(value)}/>{money(value)}
+      <div className={styles.choices}>{rules.trapAmounts.map(value=><label key={value} className={amount===value?styles.chosen:''}>
+        <input type="radio" name="trap-amount" value={value} checked={amount===value} disabled={player.money<trapCost(value,rules.trapCostPercent)} onChange={()=>setAmount(value)}/>{money(value)}
       </label>)}</div>
     </fieldset>
     <p>Установка: <strong>{money(cost)}</strong></p>
-    <p className={styles.note}>Работает {TRAP_LIFETIME_ROUNDS} полных кругов. Следующая установка — через 10 кругов. Клетку и сумму видите только вы.</p>
+    <p className={styles.note}>Работает {rules.trapLifetimeRounds} полных кругов. Следующая установка — через {rules.trapCooldownRounds} кругов. Клетку и сумму видите только вы.</p>
     <p className={styles.note}>Если попадётесь сами, штраф уйдёт банку.</p>
     <button className="primary" disabled={pending||!available||player.money<cost} onClick={()=>void place()}>Установить за {money(cost)}</button>
     <button className="secondary" disabled={pending} onClick={onCancel}>Назад</button>
@@ -43,7 +45,7 @@ export function TrapStatus({game}:{game:Game}) {
   return <section className={styles.status} aria-label="Ваши ловушки">
     <strong>ЛОВУШКИ</strong>
     {game.myTrap?<><p>Ваша ловушка: {tiles[game.myTrap.tile].name}</p><p>Штраф {money(game.myTrap.amount)} · полных кругов осталось: {game.myTrap.roundsLeft}</p></>:<p>{game.trapCooldown?'Активных ловушек нет.':'Нажмите на свободную компанию, чтобы поставить скрытую ловушку.'}</p>}
-    <p>{game.trapCooldown?`Следующая установка через ${game.trapCooldown} полных кругов.`:'Доступна одна установка за 10 полных кругов.'}</p>
+    <p>{game.trapCooldown?`Следующая установка через ${game.trapCooldown} полных кругов.`:`Доступна одна установка за ${rulesOf(game).trapCooldownRounds} полных кругов.`}</p>
     {game.myTrap&&<p>Ваш баланс показывает доступные деньги. Для соперников он включает резерв установки до раскрытия ловушки.</p>}
   </section>;
 }

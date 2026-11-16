@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { rulesOf } from '@/lib/rules';
 import { money, tiles, type Game, type Trade } from '@/lib/game';
 
 type PropertyRenderer = (index: number) => ReactNode;
@@ -42,7 +43,7 @@ export function TradeEditor({game,playerId,targetId,give,take,giveCash,takeCash,
   return <>
     <div className="panel-kicker"><span/> {counter?'ТОРГУЕМСЯ':`ОБМЕН · ${target?.name}`}</div>
     <h2>{counter?'Встречное предложение':'Договор'}</h2>
-    {!counter&&<button className="secondary" disabled={pending||!canDuel} title="Дуэль доступна в свой ход до броска, один раз за ход, при наличии 100k у обоих игроков и без незавершённой сделки" onClick={onDuel}>Дуэль</button>}
+    {!counter&&<button className="secondary" disabled={pending||!canDuel} title={`Дуэль доступна до броска, один раз за ход. Минимальная ставка с каждого игрока — ${money(rulesOf(game).duelStep)}.`} onClick={onDuel}>Дуэль</button>}
     <p>{counter?'Измените суммы и компании. После отправки соперник сможет принять ваши условия или предложить свои.':'Нажимайте на компании на поле, чтобы добавить их в обмен.'}</p>
     {counter&&<p className="trade-hint">Компании выбираются на поле; нажатие на выбранную убирает её из обмена.</p>}
     <div className="trade-columns">
