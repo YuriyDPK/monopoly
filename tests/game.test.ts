@@ -26,6 +26,30 @@ async function act(game: Game, action: string, extra: Record<string,unknown> = {
   return {status:response.status,body:await response.json()};
 }
 
+test('only the nickname пена starts with 30000 as host or guest, and reconnecting preserves cash', async () => {
+  for (const [hostName, guestName, hostCash, guestCash] of [
+    ['  пЕнА  ', 'пенал', 30000, 15000],
+    ['', 'пена', 15000, 30000],
+  ] as const) {
+    const created = await POST(new Request('http://localhost/api/game', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create', id: 'host', name: hostName }),
+    }));
+    assert.equal(created.status, 200);
+    const room: Game = await created.json();
+    assert.equal((await act(room, 'join', { name: guestName }, 'guest')).status, 200);
+    const started = await act(room, 'start');
+    assert.equal(started.status, 200);
+    assert.deepEqual(started.body.players.map((p: Game['players'][number]) => p.money), [hostCash, guestCash]);
+
+    assert.equal((await act(room, 'loanTake')).status, 200);
+    const rejoined = await act(room, 'join', { name: 'пена' }, 'host');
+    assert.equal(rejoined.status, 200);
+    assert.equal(rejoined.body.players[0].money, hostCash + LOAN_PRINCIPAL);
+  }
+});
+
 test('surrender during a duel cancels it and refunds both stakes before elimination', async () => {
   const game=fixture();game.players.push({id:'carol',name:'Каролина',color:'#aaa',money:15000,position:0});
   assert.equal((await act(game,'duelChallenge',{to:'bob',bet:700})).status,200);

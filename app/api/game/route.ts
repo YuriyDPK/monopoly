@@ -11,6 +11,11 @@ const privateKeys = globalStore.monopolyPrivateKeys ??= new Map<string, Map<stri
 const fail=(message:string,status=400)=>Response.json({error:message},{status});
 const log=(g:Game,s:string)=>{g.log=[s,...g.log].slice(0,40)};
 const current=(g:Game)=>g.players[g.turn];
+function createPlayer(id: string, nickname: unknown, color: string): Player {
+ const name = String(nickname || 'Игрок').trim().slice(0, 20) || 'Игрок';
+ const money = name.toLowerCase() === 'пена' ? 30_000 : 15_000;
+ return { id, name, color, money, position: 0 };
+}
 function tradeTerms(g:Game,from:Player,to:Player,value:unknown){
  if(!value||typeof value!=='object')return;
  const {give,take,giveCash,takeCash}=value as Trade;
@@ -207,15 +212,15 @@ export async function GET(req:Request){const params=new URL(req.url).searchParam
 export async function POST(req:Request){
  try{
  const b=await req.json(),key=playerKey(req); let g:Game|undefined=rooms.get(String(b.room||'').toUpperCase());
- if(b.action==='create'){const code=Math.random().toString(36).slice(2,8).toUpperCase();const p:Player={id:b.id,name:String(b.name||'Игрок').trim().slice(0,20)||'Игрок',color:colors[0],money:15000,position:0};g={code,players:[p],host:p.id,started:false,turn:0,phase:'lobby',owners:{},levels:{},turnSerial:1,lastUpgradeTurn:{},mortgaged:[],mortgageTurns:{},dice:[],log:[`${p.name} создаёт комнату`],revision:0};rooms.set(code,g);rememberKey(g,p.id,key);return Response.json(gameView(g,p.id,key))}
+ if(b.action==='create'){const code=Math.random().toString(36).slice(2,8).toUpperCase();const p=createPlayer(b.id,b.name,colors[0]);g={code,players:[p],host:p.id,started:false,turn:0,phase:'lobby',owners:{},levels:{},turnSerial:1,lastUpgradeTurn:{},mortgaged:[],mortgageTurns:{},dice:[],log:[`${p.name} создаёт комнату`],revision:0};rooms.set(code,g);rememberKey(g,p.id,key);return Response.json(gameView(g,p.id,key))}
  if(!g)return fail('Комната не найдена');
  g.levels ??= {};g.turnSerial ??= 1;g.lastUpgradeTurn ??= {};g.mortgageTurns ??= {};for(const i of g.mortgaged)g.mortgageTurns[i] ??= MORTGAGE_TURNS;
  let p=g.players.find(x=>x.id===b.id);
- if(b.action==='join'){if(!p){if(g.started)return fail('Игра уже началась');if(g.players.length>=6)return fail('Комната заполнена');p={id:b.id,name:String(b.name||'Игрок').trim().slice(0,20)||'Игрок',color:colors[g.players.length],money:15000,position:0};g.players.push(p);log(g,`${p.name} присоединяется к игре`)}rememberKey(g,p.id,key);g.revision++;return Response.json(gameView(g,p.id,key))}
+ if(b.action==='join'){if(!p){if(g.started)return fail('Игра уже началась');if(g.players.length>=6)return fail('Комната заполнена');p=createPlayer(b.id,b.name,colors[g.players.length]);g.players.push(p);log(g,`${p.name} присоединяется к игре`)}rememberKey(g,p.id,key);g.revision++;return Response.json(gameView(g,p.id,key))}
  if(!p)return fail('Сначала присоединитесь к комнате',403);
  if((g.phase==='duelInvite'||g.phase==='duelResult')&&!['duelRespond','duelCancel','duelContinue','surrender','chat'].includes(b.action))return fail('Сначала завершите дуэль');
  if(b.action==='leave'){if(g.started&&g.phase!=='finished')return fail('Дождитесь окончания игры');if(!g.started){g.players=g.players.filter(player=>player.id!==p!.id);const nextHost=g.players.find(player=>!player.bot);if(!nextHost){rooms.delete(g.code);privateKeys.delete(g.code);return Response.json({ok:true})}if(g.host===p.id)g.host=nextHost.id;log(g,`${p.name} покидает комнату`);g.revision++}return Response.json({ok:true})}
- if(b.action==='addBot'){if(p.id!==g.host||g.started||g.players.length>=6)return fail('Нельзя добавить бота');const used=new Set(g.players.map(x=>x.name));const name=['Бот Алекс','Бот Макс','Бот Сэм','Бот Ник','Бот Ким'].find(x=>!used.has(x)) || `Бот ${g.players.length}`;const bot:Player={id:`bot-${crypto.randomUUID()}`,name,color:colors[g.players.length],money:15000,position:0,bot:true};g.players.push(bot);log(g,`${name} присоединяется к игре`)}
+ if(b.action==='addBot'){if(p.id!==g.host||g.started||g.players.length>=6)return fail('Нельзя добавить бота');const used=new Set(g.players.map(x=>x.name));const name=['Бот Алекс','Бот Макс','Бот Сэм','Бот Ник','Бот Ким'].find(x=>!used.has(x)) || `Бот ${g.players.length}`;const bot={...createPlayer(`bot-${crypto.randomUUID()}`,name,colors[g.players.length]),bot:true};g.players.push(bot);log(g,`${name} присоединяется к игре`)}
  else if(b.action==='removeBot'){const index=g.players.findIndex(x=>x.id===b.botId&&x.bot);if(p.id!==g.host||g.started||index<0)return fail('Нельзя удалить бота');const [bot]=g.players.splice(index,1);g.players.forEach((player,i)=>player.color=colors[i]);log(g,`${bot.name} покидает комнату`)}
  else if(b.action==='start'){if(p.id!==g.host||g.started||g.players.length<2)return fail('Для начала нужны хотя бы два игрока');g.started=true;g.phase='roll';log(g,'Игра началась! Вперёд к новым победам')}
  else if(b.action==='trapPlace'){
